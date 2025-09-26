@@ -17,7 +17,7 @@ using KnownFolders = ThreeFingerDragOnWindows.utils.KnownFolders;
 namespace ThreeFingerDragOnWindows.settings;
 
 public sealed partial class OtherSettings{
-    private readonly Timer _timer = new(1000);
+    private readonly System.Timers.Timer _timer = new(1000);
 
     public OtherSettings(){
         InitializeComponent();

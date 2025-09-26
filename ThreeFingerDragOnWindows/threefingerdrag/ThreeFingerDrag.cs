@@ -11,7 +11,7 @@ public class ThreeFingerDrag{
 
     private readonly DistanceManager _distanceManager = new();
     private readonly FingerCounter _fingerCounter = new();
-    private readonly Timer _dragEndTimer = new();
+    private readonly System.Timers.Timer _dragEndTimer = new();
     private bool _isDragging;
 
     public ThreeFingerDrag(){

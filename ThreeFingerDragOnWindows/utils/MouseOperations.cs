@@ -103,6 +103,43 @@ public class MouseOperations {
         }
     }
 
+    // MouseLike gesture engine support methods
+    public static void MouseDown(int mouseEventFlag){
+        MouseClick(mouseEventFlag);
+    }
+
+    public static void MouseUp(int mouseEventFlag){
+        MouseClick(mouseEventFlag);
+    }
+
+    /// <summary>
+    /// 发送滚轮事件
+    /// </summary>
+    /// <param name="horizontalDelta">水平滚动增量</param>
+    /// <param name="verticalDelta">垂直滚动增量</param>
+    public static void SendWheelEvent(int horizontalDelta, int verticalDelta)
+    {
+        if (verticalDelta != 0)
+        {
+            var input = new Input[1];
+            input[0].type = INPUT_MOUSE;
+            input[0].mi.dwFlags = 0x0800; // MOUSEEVENTF_WHEEL
+            input[0].mi.mouseData = verticalDelta;
+
+            SendInput(1, input, Marshal.SizeOf(typeof(Input)));
+        }
+
+        if (horizontalDelta != 0)
+        {
+            var input = new Input[1];
+            input[0].type = INPUT_MOUSE;
+            input[0].mi.dwFlags = 0x1000; // MOUSEEVENTF_HWHEEL
+            input[0].mi.mouseData = horizontalDelta;
+
+            SendInput(1, input, Marshal.SizeOf(typeof(Input)));
+        }
+    }
+
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Input {

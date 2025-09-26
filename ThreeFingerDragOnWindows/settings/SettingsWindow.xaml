@@ -73,6 +73,11 @@
                         <FontIcon Glyph="&#xE759;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="MouseLike Mode" Tag="MouseLike" x:Name="MouseLike">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE962;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Other Settings" Tag="Other Settings" x:Name="OtherSettings">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE713;" />

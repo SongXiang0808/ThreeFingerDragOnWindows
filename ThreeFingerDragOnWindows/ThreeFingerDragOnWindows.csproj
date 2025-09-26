@@ -2,6 +2,8 @@
     <PropertyGroup>
         <OutputType>WinExe</OutputType>
         <TargetFramework>net6.0-windows10.0.19041.0</TargetFramework>
+		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+		<GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
         <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
         <RootNamespace>ThreeFingerDragOnWindows</RootNamespace>
         <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -110,7 +112,10 @@
 
     <ItemGroup>
         <PackageReference Include="H.NotifyIcon.WinUI" Version="2.0.131" />
-        <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.22621.3233" />
+        <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.22621.3233">
+            <IncludeAssets>compile</IncludeAssets>
+            <ExcludeAssets>native</ExcludeAssets>
+        </PackageReference>
         <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.5.240627000" />
         <PackageReference Include="TaskScheduler" Version="2.11.0" />
         <PackageReference Include="WinUICommunity.Components" Version="6.9.0" />

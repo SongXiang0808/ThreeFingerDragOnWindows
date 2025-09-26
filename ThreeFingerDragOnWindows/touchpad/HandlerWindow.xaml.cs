@@ -78,4 +78,12 @@ public sealed partial class HandlerWindow : Window {
     private static long Ctms(){
         return new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds();
     }
+
+    /// <summary>
+    /// 获取ContactsManager实例，用于设置界面访问MouseLike引擎
+    /// </summary>
+    public ContactsManager GetContactsManager()
+    {
+        return _contactsManager;
+    }
 }

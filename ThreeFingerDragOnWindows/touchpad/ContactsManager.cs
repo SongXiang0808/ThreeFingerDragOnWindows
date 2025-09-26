@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using ThreeFingerDragEngine.utils;
 using ThreeFingerDragOnWindows.utils;
+using ThreeFingerDragOnWindows.mouselike;
 using WinRT.Interop;
 using WinUICommunity;
 
@@ -15,11 +16,22 @@ public class ContactsManager{
     private readonly IntPtr _hwnd;
     private IntPtr _oldWndProc;
 
+    // MouseLike手势引擎
+    private readonly MouseLikeGestureEngine _mouseLikeGestureEngine;
+
+    /// <summary>
+    /// MouseLike手势引擎访问接口
+    /// </summary>
+    public MouseLikeGestureEngine MouseLikeGestureEngine => _mouseLikeGestureEngine;
+
     public ContactsManager(HandlerWindow source){
         _source = source;
 
         _hwnd = WindowNative.GetWindowHandle(_source);
         _oldWndProc = Interop.SetWndProc(_hwnd, WindowProcess);
+
+        // 初始化MouseLike手势引擎
+        _mouseLikeGestureEngine = new MouseLikeGestureEngine();
     }
 
     public void InitializeSource(){
@@ -58,7 +70,10 @@ public class ContactsManager{
         // Regular contact list
         if(count == contacts.Count){
             Logger.Log("+ Receiving regular contact list: " +  string.Join(", ", contacts.Select(c => c.ToString())));
-            _source.OnTouchpadContact(contacts);
+
+            // 处理触摸板接触点
+            ProcessTouchpadContacts(contacts);
+
             _lastContacts.Clear();
             return;
         }
@@ -77,13 +92,13 @@ public class ContactsManager{
             if(_lastContacts.Count > _targetContactCount){
                 Logger.Log("[WARNING] LastContact list has more contacts than expected: " + string.Join(", ", _lastContacts.Select(c => c.ToString())));
                 _lastContacts = _lastContacts.Take((int) _targetContactCount).ToList();
-                _source.OnTouchpadContact(_lastContacts);
+                ProcessTouchpadContacts(_lastContacts);
                 _lastContacts.Clear();
 
             }
             if(_lastContacts.Count == _targetContactCount){
                 Logger.Log("+ LastContact list has correct length: " + string.Join(", ", _lastContacts.Select(c => c.ToString())));
-                _source.OnTouchpadContact(_lastContacts);
+                ProcessTouchpadContacts(_lastContacts);
                 _lastContacts.Clear();
             }
             return;
@@ -107,7 +122,7 @@ public class ContactsManager{
 
             Logger.Log("+ LastContact list has correct length: " + string.Join(", ", _lastContacts.Select(c => c.ToString())));
 
-            _source.OnTouchpadContact(_lastContacts);
+            ProcessTouchpadContacts(_lastContacts);
             _lastContacts.Clear();
         }
 
@@ -116,7 +131,7 @@ public class ContactsManager{
             Logger.Log("[WARNING] Received contact list with more contacts than expected: " + string.Join(", ", contacts.Select(c => c.ToString())));
             contacts = contacts.Take((int) count).ToList();
             Logger.Log("+ Contact list has been clamped: " + string.Join(", ", contacts.Select(c => c.ToString())));
-            _source.OnTouchpadContact(contacts);
+            ProcessTouchpadContacts(contacts);
             _lastContacts.Clear();
             return;
         }
@@ -138,5 +153,23 @@ public class ContactsManager{
             Logger.Log("[WARNING] Duplicate contacts ID in list. Removing duplicates: " + string.Join(", ", uniqueContacts.Select(c => c.ToString())));
         }
         return uniqueContacts;
+    }
+
+    /// <summary>
+    /// 处理触摸板接触点 - 支持MouseLike和ThreeFingerDrag两种模式
+    /// </summary>
+    /// <param name="contacts">接触点列表</param>
+    private void ProcessTouchpadContacts(List<TouchpadContact> contacts)
+    {
+        // 如果MouseLike模式启用，优先使用MouseLike手势引擎
+        if (_mouseLikeGestureEngine.IsEnabled)
+        {
+            _mouseLikeGestureEngine.ProcessContacts(contacts.ToArray());
+        }
+        else
+        {
+            // 否则使用原来的三指拖拽功能
+            _source.OnTouchpadContact(contacts);
+        }
     }
 }
