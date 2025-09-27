@@ -1,7 +1,11 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using ThreeFingerDragOnWindows.utils;
-
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
 namespace ThreeFingerDragOnWindows.settings;
 
 public sealed partial class MouseLikeSettings : Page
@@ -31,19 +35,26 @@ public sealed partial class MouseLikeSettings : Page
         var engine = GetMouseLikeEngine();
         if (engine == null) return;
 
-        // 加载开关状态
-        EnableMouseLikeToggle.IsOn = engine.IsEnabled;
+        // 从SettingsData加载保存的设置
+        var settingsData = App.SettingsData;
 
-        // 加载设置参数
-        var settings = engine.Settings;
-        SensitivitySlider.Value = settings.MouseSensitivity;
-        ThumbScaleSlider.Value = settings.ThumbScale;
-        JitterThresholdSlider.Value = settings.JitterOffset;
+        // 设置引擎状态
+        engine.IsEnabled = settingsData.MouseLikeModeEnabled;
+        engine.UpdateSettings(settingsData.MouseLikeSensitivity, settingsData.MouseLikeThumbScale);
+        engine.Settings.JitterOffset = settingsData.MouseLikeJitterOffset;
+
+        // 更新UI控件
+        EnableMouseLikeToggle.IsOn = engine.IsEnabled;
+        SensitivitySlider.Value = engine.Settings.MouseSensitivity;
+        ThumbScaleSlider.Value = engine.Settings.ThumbScale;
+        JitterThresholdSlider.Value = engine.Settings.JitterOffset;
 
         // 更新显示文本
-        SensitivityValueText.Text = settings.MouseSensitivity.ToString("F1");
-        ThumbScaleValueText.Text = settings.ThumbScale.ToString("F1");
-        JitterThresholdValueText.Text = settings.JitterOffset.ToString("F0");
+        SensitivityValueText.Text = engine.Settings.MouseSensitivity.ToString("F1");
+        ThumbScaleValueText.Text = engine.Settings.ThumbScale.ToString("F1");
+        JitterThresholdValueText.Text = engine.Settings.JitterOffset.ToString("F0");
+
+        Logger.Log($"MouseLike settings loaded - Enabled: {engine.IsEnabled}");
     }
 
     /// <summary>
@@ -165,19 +176,52 @@ public sealed partial class MouseLikeSettings : Page
     }
 
     /// <summary>
+    /// 显示日志文件位置按钮点击事件
+    /// </summary>
+    private void ShowLogFileButton_Click(object sender, RoutedEventArgs e)
+    {
+        string logFilePath = Logger.GetLogFilePath();
+        Logger.Log($"Opening log file location: {logFilePath}");
+
+        // 强制刷新日志确保所有内容都写入文件
+        Logger.FlushNow();
+        Logger.Log("Log file flushed to disk");
+
+        try
+        {
+            // 等待一下让文件写入完成
+            System.Threading.Thread.Sleep(100);
+
+            // 打开日志文件所在文件夹
+            System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{logFilePath}\"");
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Failed to open log file location: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// 保存设置到配置文件
     /// </summary>
     private void SaveSettings()
     {
-        // TODO: 将设置保存到SettingsData
-        // 暂时先记录日志
         var engine = GetMouseLikeEngine();
-        if (engine?.Settings != null)
-        {
-            Logger.Log($"MouseLike settings - Enabled: {engine.IsEnabled}, " +
-                      $"Sensitivity: {engine.Settings.MouseSensitivity}, " +
-                      $"ThumbScale: {engine.Settings.ThumbScale}, " +
-                      $"JitterOffset: {engine.Settings.JitterOffset}");
-        }
+        if (engine?.Settings == null) return;
+
+        // 保存到SettingsData
+        var settingsData = App.SettingsData;
+        settingsData.MouseLikeModeEnabled = engine.IsEnabled;
+        settingsData.MouseLikeSensitivity = engine.Settings.MouseSensitivity;
+        settingsData.MouseLikeThumbScale = engine.Settings.ThumbScale;
+        settingsData.MouseLikeJitterOffset = engine.Settings.JitterOffset;
+
+        // 触发设置保存
+        App.SettingsData.save();
+
+        Logger.Log($"MouseLike settings saved - Enabled: {engine.IsEnabled}, " +
+                  $"Sensitivity: {engine.Settings.MouseSensitivity}, " +
+                  $"ThumbScale: {engine.Settings.ThumbScale}, " +
+                  $"JitterOffset: {engine.Settings.JitterOffset}");
     }
 }

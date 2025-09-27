@@ -77,34 +77,25 @@ public struct MouseButtonState
 }
 
 /// <summary>
-/// 手势设置参数，移植自驱动中的配置
+/// 手势设置参数，完全基于C++驱动中的配置
 /// </summary>
 public class GestureSettings
 {
-    /// <summary>手指间最小有效距离 (mm -> pixels)</summary>
-    public float FingerMinDistance { get; set; } = 12f;
+    /// <summary>手指间最小有效距离 (对应C++的FingerMinDistance)</summary>
+    public float FingerMinDistance { get; set; } = 12f; // 对应驱动中的默认值
 
-    /// <summary>手指合拢判断阈值距离</summary>
-    public float FingerClosedThreshold { get; set; } = 16f;
+    /// <summary>手指合拢判断阈值距离 (对应C++的FingerClosedThresholdDistance)</summary>
+    public float FingerClosedThreshold { get; set; } = 25f; // 对应驱动中的默认值
 
-    /// <summary>鼠标移动敏感度</summary>
-    public float MouseSensitivity { get; set; } = 1.0f;
+    /// <summary>鼠标移动敏感度 (对应C++的MouseSensitivity_Value)</summary>
+    public float MouseSensitivity { get; set; } = 1.0f; // 对应驱动中的默认值
 
-    /// <summary>手指尺寸缩放比例</summary>
-    public float ThumbScale { get; set; } = 1.0f;
+    /// <summary>手指尺寸缩放比例 (对应C++的thumb_Scale)</summary>
+    public float ThumbScale { get; set; } = 1.0f; // 对应驱动中的默认值
 
-    /// <summary>抖动消除偏移量</summary>
-    public float JitterOffset { get; set; } = 10f;
+    /// <summary>抖动消除偏移量 (对应C++的Jitter_Offset)</summary>
+    public float JitterOffset { get; set; } = 2f; // 对应驱动中的默认值
 
-    /// <summary>按键指针间隔判断时间 (ms)</summary>
-    public int ButtonPointerIntervalMs { get; set; } = 300;
-
-    /// <summary>手指稳定间隔时间 - 分开状态 (ms)</summary>
-    public int StableIntervalSeparated { get; set; } = 30;
-
-    /// <summary>手指稳定间隔时间 - 合拢状态 (ms)</summary>
-    public int StableIntervalClosed { get; set; } = 150;
-
-    /// <summary>计算最大有效距离</summary>
-    public float FingerMaxDistance => FingerMinDistance * 4f;
+    /// <summary>计算最大有效距离 (对应C++的FingerMaxDistance)</summary>
+    public float FingerMaxDistance => FingerMinDistance * 4f; // 对应驱动中的计算方式
 }

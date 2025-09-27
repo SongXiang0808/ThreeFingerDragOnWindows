@@ -1,322 +1,281 @@
 using System;
-using System.Linq;
 using ThreeFingerDragEngine.utils;
+using ThreeFingerDragOnWindows.mouselike;
 using ThreeFingerDragOnWindows.utils;
 
-namespace ThreeFingerDragOnWindows.mouselike;
-
-/// <summary>
-/// 手指跟踪器，负责手指角色分配和状态管理
-/// 移植自MouseLikeTouchPad_I2C驱动的核心手指跟踪逻辑
-/// </summary>
-public class FingerTracker
+namespace ThreeFingerDragOnWindows.mouselike
 {
-    private const int MAX_CONTACT_POINTS = 5;
-    private readonly GestureSettings _settings;
-
-    // 当前和上一帧的手指状态
-    private FingerState[] _currentFingers = new FingerState[MAX_CONTACT_POINTS];
-    private FingerState[] _lastFingers = new FingerState[MAX_CONTACT_POINTS];
-
-    // 手指角色索引 (移植自驱动中的nMouse_*_CurrentIndex变量)
-    private int _pointerIndex = -1;
-    private int _leftButtonIndex = -1;
-    private int _rightButtonIndex = -1;
-    private int _middleButtonIndex = -1;
-    private int _wheelIndex = -1;
-
-    private int _lastPointerIndex = -1;
-    private int _lastLeftButtonIndex = -1;
-    private int _lastRightButtonIndex = -1;
-    private int _lastMiddleButtonIndex = -1;
-    private int _lastWheelIndex = -1;
-
-    // 手势状态
-    private bool _isWheelMode = false;
-    private bool _isWheelModeJudgeEnabled = true;
-    private bool _isGestureCompleted = false;
-    private DateTime _pointerDefineTime;
-    private DateTime _jitterFixStartTime;
-
-    public FingerTracker(GestureSettings settings)
-    {
-        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
-        Reset();
-    }
-
     /// <summary>
-    /// 重置跟踪器状态
+    /// 手指跟踪器 - 完全基于C++驱动MouseLikeTouchPad_parse函数重写
     /// </summary>
-    public void Reset()
+    public class FingerTracker
     {
-        // 重置所有索引
-        _pointerIndex = _leftButtonIndex = _rightButtonIndex = _middleButtonIndex = _wheelIndex = -1;
-        _lastPointerIndex = _lastLeftButtonIndex = _lastRightButtonIndex = _lastMiddleButtonIndex = _lastWheelIndex = -1;
+        private const int MAX_CONTACT_POINTS = 5;
+        private readonly GestureSettings _settings;
 
-        // 重置状态
-        _isWheelMode = false;
-        _isWheelModeJudgeEnabled = true;
-        _isGestureCompleted = false;
+        // 手指角色索引 (完全对应C++驱动的变量)
+        private int nMouse_Pointer_CurrentIndex = -1;
+        private int nMouse_LButton_CurrentIndex = -1;
+        private int nMouse_RButton_CurrentIndex = -1;
+        private int nMouse_MButton_CurrentIndex = -1;
 
-        // 清空手指状态数组
-        Array.Clear(_currentFingers, 0, _currentFingers.Length);
-        Array.Clear(_lastFingers, 0, _lastFingers.Length);
+        private int nMouse_Pointer_LastIndex = -1;
+        private int nMouse_LButton_LastIndex = -1;
+        private int nMouse_RButton_LastIndex = -1;
+        private int nMouse_MButton_LastIndex = -1;
 
-        Logger.Log("FingerTracker: Reset completed");
-    }
+        // 当前和上一帧的手指状态
+        private TouchpadContact[] currentFingers = new TouchpadContact[MAX_CONTACT_POINTS];
+        private TouchpadContact[] lastFingers = new TouchpadContact[MAX_CONTACT_POINTS];
+        private int currentFingerCount = 0;
+        private int lastFingerCount = 0;
 
-    /// <summary>
-    /// 处理新的触摸接触点
-    /// 移植自驱动中的MouseLikeTouchPad_parse函数主逻辑
-    /// </summary>
-    /// <param name="contacts">触摸接触点数组</param>
-    /// <returns>手势识别结果</returns>
-    public GestureResult ProcessContacts(TouchpadContact[] contacts)
-    {
-        if (contacts == null)
+        public FingerTracker(GestureSettings settings)
         {
-            Logger.Log("FingerTracker: Null contacts received");
-            return new GestureResult { IsGestureCompleted = true };
+            _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            Reset();
         }
 
-        // 保存上一帧状态
-        Array.Copy(_currentFingers, _lastFingers, _currentFingers.Length);
-        SaveLastIndexes();
-
-        // 更新当前帧状态
-        UpdateCurrentFingers(contacts);
-
-        // 执行手指跟踪和角色分配
-        TrackFingers();
-
-        // 生成手势结果
-        var result = GenerateGestureResult();
-
-        Logger.Log($"FingerTracker: Processed {contacts.Length} contacts, " +
-                  $"Pointer: {_pointerIndex}, L: {_leftButtonIndex}, R: {_rightButtonIndex}, " +
-                  $"M: {_middleButtonIndex}, Wheel: {_wheelIndex}");
-
-        return result;
-    }
-
-    /// <summary>
-    /// 保存上一帧的索引状态
-    /// </summary>
-    private void SaveLastIndexes()
-    {
-        _lastPointerIndex = _pointerIndex;
-        _lastLeftButtonIndex = _leftButtonIndex;
-        _lastRightButtonIndex = _rightButtonIndex;
-        _lastMiddleButtonIndex = _middleButtonIndex;
-        _lastWheelIndex = _wheelIndex;
-    }
-
-    /// <summary>
-    /// 更新当前帧的手指状态
-    /// </summary>
-    private void UpdateCurrentFingers(TouchpadContact[] contacts)
-    {
-        // 重置当前帧索引
-        _pointerIndex = _leftButtonIndex = _rightButtonIndex = _middleButtonIndex = _wheelIndex = -1;
-
-        // 清空当前状态数组
-        Array.Clear(_currentFingers, 0, _currentFingers.Length);
-
-        // 填充当前接触点
-        for (int i = 0; i < Math.Min(contacts.Length, MAX_CONTACT_POINTS); i++)
+        /// <summary>
+        /// 重置跟踪器状态
+        /// </summary>
+        public void Reset()
         {
-            var contact = contacts[i];
-            _currentFingers[i] = new FingerState(contact.ContactId, new Point(contact.X, contact.Y))
+            nMouse_Pointer_CurrentIndex = -1;
+            nMouse_LButton_CurrentIndex = -1;
+            nMouse_RButton_CurrentIndex = -1;
+            nMouse_MButton_CurrentIndex = -1;
+
+            nMouse_Pointer_LastIndex = -1;
+            nMouse_LButton_LastIndex = -1;
+            nMouse_RButton_LastIndex = -1;
+            nMouse_MButton_LastIndex = -1;
+
+            Array.Clear(currentFingers, 0, currentFingers.Length);
+            Array.Clear(lastFingers, 0, lastFingers.Length);
+            currentFingerCount = 0;
+            lastFingerCount = 0;
+
+            Logger.Log("FingerTracker: Reset completed");
+        }
+
+        /// <summary>
+        /// 处理新的触摸接触点 - 完全基于C++驱动逻辑
+        /// </summary>
+        public GestureResult ProcessContacts(TouchpadContact[] contacts)
+        {
+            Logger.Log($"FingerTracker: Processing {contacts?.Length ?? 0} contacts");
+
+            // 保存上一帧状态
+            SaveLastState();
+
+            // 更新当前状态
+            UpdateCurrentState(contacts);
+
+            // 核心手指分配逻辑 - 对应C++的MouseLikeTouchPad_parse
+            ProcessFingerAssignment();
+
+            // 计算鼠标移动
+            var movement = CalculateMovement();
+
+            // 生成手势结果
+            var result = new GestureResult
             {
-                IsActive = true,
-                LastUpdated = DateTime.Now
+                PointerDelta = new Point { x = movement.dx, y = movement.dy },
+                ButtonStates = new MouseButtonState
+                {
+                    LeftButton = nMouse_LButton_CurrentIndex != -1,
+                    RightButton = nMouse_RButton_CurrentIndex != -1,
+                    MiddleButton = nMouse_MButton_CurrentIndex != -1
+                },
+                ScrollDelta = new Point { x = 0, y = 0 },
+                IsGestureCompleted = false
             };
-        }
-    }
 
-    /// <summary>
-    /// 执行手指跟踪和角色分配
-    /// 移植自驱动中的手指追踪逻辑
-    /// </summary>
-    private void TrackFingers()
-    {
-        int activeFingerCount = _currentFingers.Count(f => f.IsActive);
+            Logger.Log($"FingerTracker: Result - Pointer:{nMouse_Pointer_CurrentIndex}, L:{nMouse_LButton_CurrentIndex}, R:{nMouse_RButton_CurrentIndex}, M:{nMouse_MButton_CurrentIndex}");
+            Logger.Log($"FingerTracker: Movement - dx:{movement.dx:F1}, dy:{movement.dy:F1}");
+            Logger.Log($"FingerTracker: Buttons - L:{result.ButtonStates.LeftButton}, R:{result.ButtonStates.RightButton}, M:{result.ButtonStates.MiddleButton}");
 
-        if (activeFingerCount == 0)
-        {
-            // 所有手指离开
-            _isGestureCompleted = true;
-            return;
+            return result;
         }
 
-        // 首先尝试从上一帧继承手指角色
-        InheritFingerRoles();
-
-        // 如果没有指针手指，尝试分配新的指针
-        if (_pointerIndex == -1 && activeFingerCount > 0)
+        /// <summary>
+        /// 保存上一帧状态
+        /// </summary>
+        private void SaveLastState()
         {
-            AssignPointerFinger();
-        }
-        // 如果指针存在，处理其他手指的角色分配
-        else if (_pointerIndex != -1 && !_isWheelMode)
-        {
-            AssignButtonFingers();
-        }
-    }
+            Array.Copy(currentFingers, lastFingers, currentFingers.Length);
+            lastFingerCount = currentFingerCount;
 
-    /// <summary>
-    /// 从上一帧继承手指角色
-    /// </summary>
-    private void InheritFingerRoles()
-    {
-        for (int i = 0; i < _currentFingers.Length; i++)
-        {
-            if (!_currentFingers[i].IsActive) continue;
-
-            int contactId = _currentFingers[i].ContactId;
-
-            // 尝试继承指针角色
-            if (_lastPointerIndex != -1 &&
-                _lastFingers[_lastPointerIndex].ContactId == contactId)
-            {
-                _pointerIndex = i;
-                continue;
-            }
-
-            // 尝试继承其他角色
-            if (_lastLeftButtonIndex != -1 &&
-                _lastFingers[_lastLeftButtonIndex].ContactId == contactId)
-            {
-                _leftButtonIndex = i;
-                continue;
-            }
-
-            if (_lastRightButtonIndex != -1 &&
-                _lastFingers[_lastRightButtonIndex].ContactId == contactId)
-            {
-                _rightButtonIndex = i;
-                continue;
-            }
-
-            if (_lastMiddleButtonIndex != -1 &&
-                _lastFingers[_lastMiddleButtonIndex].ContactId == contactId)
-            {
-                _middleButtonIndex = i;
-                continue;
-            }
-
-            if (_lastWheelIndex != -1 &&
-                _lastFingers[_lastWheelIndex].ContactId == contactId)
-            {
-                _wheelIndex = i;
-                continue;
-            }
-        }
-    }
-
-    /// <summary>
-    /// 分配指针手指
-    /// 移植自驱动中的指针分配逻辑
-    /// </summary>
-    private void AssignPointerFinger()
-    {
-        // 选择第一个有效的接触点作为指针
-        for (int i = 0; i < _currentFingers.Length; i++)
-        {
-            if (_currentFingers[i].IsActive)
-            {
-                _pointerIndex = i;
-                _pointerDefineTime = DateTime.Now;
-                Logger.Log($"FingerTracker: Assigned pointer to finger {i}");
-                break;
-            }
-        }
-    }
-
-    /// <summary>
-    /// 分配按键手指角色
-    /// 移植自驱动中的按键分配逻辑
-    /// </summary>
-    private void AssignButtonFingers()
-    {
-        if (_pointerIndex == -1) return;
-
-        var pointerPos = _currentFingers[_pointerIndex].Position;
-
-        for (int i = 0; i < _currentFingers.Length; i++)
-        {
-            if (!_currentFingers[i].IsActive || i == _pointerIndex) continue;
-
-            var fingerPos = _currentFingers[i].Position;
-            var (dx, dy, distance) = DistanceCalculator.CalculateDistanceAndDirection(pointerPos, fingerPos);
-
-            // 判断是否在有效距离范围内
-            if (!DistanceCalculator.IsWithinValidRange(pointerPos, fingerPos, _settings))
-                continue;
-
-            // 根据位置和距离分配角色
-            if (_middleButtonIndex == -1 &&
-                DistanceCalculator.IsClosed(pointerPos, fingerPos, _settings) &&
-                dx < 0)
-            {
-                // 左侧合拢 - 中键
-                _middleButtonIndex = i;
-                Logger.Log($"FingerTracker: Assigned middle button to finger {i}");
-            }
-            else if (_leftButtonIndex == -1 &&
-                     DistanceCalculator.IsSeparated(pointerPos, fingerPos, _settings) &&
-                     dx < 0)
-            {
-                // 左侧分开 - 左键
-                _leftButtonIndex = i;
-                Logger.Log($"FingerTracker: Assigned left button to finger {i}");
-            }
-            else if (_rightButtonIndex == -1 &&
-                     DistanceCalculator.IsWithinValidRange(pointerPos, fingerPos, _settings) &&
-                     dx > 0)
-            {
-                // 右侧 - 右键
-                _rightButtonIndex = i;
-                Logger.Log($"FingerTracker: Assigned right button to finger {i}");
-            }
-        }
-    }
-
-    /// <summary>
-    /// 生成手势识别结果
-    /// </summary>
-    private GestureResult GenerateGestureResult()
-    {
-        var result = new GestureResult
-        {
-            IsGestureCompleted = _isGestureCompleted
-        };
-
-        // 计算指针移动
-        if (_pointerIndex != -1 && _lastPointerIndex != -1)
-        {
-            var currentPos = _currentFingers[_pointerIndex].Position;
-            var lastPos = _lastFingers[_lastPointerIndex].Position;
-            var rawDelta = new Point(currentPos.x - lastPos.x, currentPos.y - lastPos.y);
-
-            // 应用抖动消除和敏感度
-            var smoothedDelta = new Point(
-                DistanceCalculator.RemoveJitter(rawDelta.x, _settings.JitterOffset),
-                DistanceCalculator.RemoveJitter(rawDelta.y, _settings.JitterOffset)
-            );
-
-            result.PointerDelta = DistanceCalculator.ApplySensitivity(
-                smoothedDelta, _settings.MouseSensitivity, _settings.ThumbScale);
+            nMouse_Pointer_LastIndex = nMouse_Pointer_CurrentIndex;
+            nMouse_LButton_LastIndex = nMouse_LButton_CurrentIndex;
+            nMouse_RButton_LastIndex = nMouse_RButton_CurrentIndex;
+            nMouse_MButton_LastIndex = nMouse_MButton_CurrentIndex;
         }
 
-        // 设置按键状态
-        result.ButtonStates = new MouseButtonState
+        /// <summary>
+        /// 更新当前状态
+        /// </summary>
+        private void UpdateCurrentState(TouchpadContact[] contacts)
         {
-            LeftButton = _leftButtonIndex != -1,
-            RightButton = _rightButtonIndex != -1,
-            MiddleButton = _middleButtonIndex != -1
-        };
+            Array.Clear(currentFingers, 0, currentFingers.Length);
+            currentFingerCount = 0;
 
-        return result;
+            if (contacts != null)
+            {
+                for (int i = 0; i < Math.Min(contacts.Length, MAX_CONTACT_POINTS); i++)
+                {
+                    currentFingers[i] = contacts[i];
+                }
+                currentFingerCount = contacts.Length;
+            }
+
+            Logger.Log($"FingerTracker: Updated state - current:{currentFingerCount}, last:{lastFingerCount}");
+        }
+
+        /// <summary>
+        /// 核心手指分配逻辑 - 完全对应C++驱动的逻辑
+        /// </summary>
+        private void ProcessFingerAssignment()
+        {
+            // 1. 如果没有指针且有手指，分配第一个手指为指针
+            if (nMouse_Pointer_LastIndex == -1 && currentFingerCount > 0)
+            {
+                // 找到第一个有效的手指作为指针
+                for (int i = 0; i < currentFingerCount; i++)
+                {
+                    if (IsValidContact(currentFingers[i]))
+                    {
+                        nMouse_Pointer_CurrentIndex = i;
+                        Logger.Log($"FingerTracker: Assigned pointer to finger {i}");
+                        break;
+                    }
+                }
+            }
+            // 2. 如果指针丢失，重置所有角色
+            else if (nMouse_Pointer_CurrentIndex == -1 && nMouse_Pointer_LastIndex != -1)
+            {
+                Logger.Log("FingerTracker: Pointer lost, resetting all roles");
+                nMouse_Pointer_CurrentIndex = -1;
+                nMouse_LButton_CurrentIndex = -1;
+                nMouse_RButton_CurrentIndex = -1;
+                nMouse_MButton_CurrentIndex = -1;
+            }
+            // 3. 如果有指针，分配其他手指的角色
+            else if (nMouse_Pointer_CurrentIndex != -1)
+            {
+                // 重置按钮角色
+                nMouse_LButton_CurrentIndex = -1;
+                nMouse_RButton_CurrentIndex = -1;
+                nMouse_MButton_CurrentIndex = -1;
+
+                // 分配按钮角色
+                AssignButtonRoles();
+            }
+        }
+
+        /// <summary>
+        /// 分配按钮角色 - 完全对应C++驱动的逻辑
+        /// </summary>
+        private void AssignButtonRoles()
+        {
+            if (currentFingerCount <= 1) return;
+
+            var pointerContact = currentFingers[nMouse_Pointer_CurrentIndex];
+            Logger.Log($"FingerTracker: Pointer at ({pointerContact.X}, {pointerContact.Y})");
+
+            for (int i = 0; i < currentFingerCount; i++)
+            {
+                // 跳过指针手指和无效手指
+                if (i == nMouse_Pointer_CurrentIndex || !IsValidContact(currentFingers[i]))
+                    continue;
+
+                // 跳过已分配的手指
+                if (i == nMouse_LButton_CurrentIndex || i == nMouse_RButton_CurrentIndex || i == nMouse_MButton_CurrentIndex)
+                    continue;
+
+                var fingerContact = currentFingers[i];
+                float dx = fingerContact.X - pointerContact.X;
+                float dy = fingerContact.Y - pointerContact.Y;
+                float distance = (float)Math.Sqrt(dx * dx + dy * dy);
+
+                Logger.Log($"FingerTracker: Finger {i} at ({fingerContact.X}, {fingerContact.Y}), dx:{dx:F1}, dy:{dy:F1}, distance:{distance:F1}");
+
+                // 按C++驱动的逻辑分配角色
+                if (nMouse_MButton_CurrentIndex == -1 &&
+                    distance > _settings.FingerMinDistance &&
+                    distance < _settings.FingerClosedThreshold &&
+                    dx < 0)
+                {
+                    // 左侧合拢 - 中键
+                    nMouse_MButton_CurrentIndex = i;
+                    Logger.Log($"FingerTracker: Assigned MIDDLE button to finger {i} (closed left, distance:{distance:F1})");
+                }
+                else if (nMouse_LButton_CurrentIndex == -1 &&
+                         distance > _settings.FingerClosedThreshold &&
+                         distance < _settings.FingerMaxDistance &&
+                         dx < 0)
+                {
+                    // 左侧分开 - 左键
+                    nMouse_LButton_CurrentIndex = i;
+                    Logger.Log($"FingerTracker: Assigned LEFT button to finger {i} (separated left, distance:{distance:F1})");
+                }
+                else if (nMouse_RButton_CurrentIndex == -1 &&
+                         distance > _settings.FingerMinDistance &&
+                         distance < _settings.FingerMaxDistance &&
+                         dx > 0)
+                {
+                    // 右侧 - 右键
+                    nMouse_RButton_CurrentIndex = i;
+                    Logger.Log($"FingerTracker: Assigned RIGHT button to finger {i} (right side, distance:{distance:F1})");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 检查接触点是否有效
+        /// </summary>
+        private bool IsValidContact(TouchpadContact contact)
+        {
+            // 对应C++的 Confidence && TipSwitch 检查
+            return contact.ContactId >= 0; // 简化的有效性检查
+        }
+
+        /// <summary>
+        /// 计算鼠标移动 - 对应C++驱动的移动计算逻辑
+        /// </summary>
+        private (float dx, float dy) CalculateMovement()
+        {
+            if (nMouse_Pointer_CurrentIndex == -1 || nMouse_Pointer_LastIndex == -1)
+                return (0, 0);
+
+            var currentPointer = currentFingers[nMouse_Pointer_CurrentIndex];
+            var lastPointer = lastFingers[nMouse_Pointer_LastIndex];
+
+            float diffX = currentPointer.X - lastPointer.X;
+            float diffY = currentPointer.Y - lastPointer.Y;
+
+            // 应用缩放和敏感度
+            float px = diffX / _settings.ThumbScale;
+            float py = diffY / _settings.ThumbScale;
+
+            // 抖动消除
+            if (Math.Abs(px) <= _settings.JitterOffset)
+                px = 0;
+            if (Math.Abs(py) <= _settings.JitterOffset)
+                py = 0;
+
+            // 应用敏感度
+            double dx = _settings.MouseSensitivity * px;
+            double dy = _settings.MouseSensitivity * py;
+
+            // 精细移动处理
+            if (Math.Abs(dx) > 0.5 && Math.Abs(dx) < 1)
+                dx = dx > 0 ? 1 : -1;
+            if (Math.Abs(dy) > 0.5 && Math.Abs(dy) < 1)
+                dy = dy > 0 ? 1 : -1;
+
+            return ((float)dx, (float)dy);
+        }
     }
 }

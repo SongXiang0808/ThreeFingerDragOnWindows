@@ -32,6 +32,13 @@ public class ContactsManager{
 
         // 初始化MouseLike手势引擎
         _mouseLikeGestureEngine = new MouseLikeGestureEngine();
+
+        // 立即从SettingsData加载设置
+        LoadMouseLikeSettings();
+
+        // 强制启用MouseLike模式进行调试
+        _mouseLikeGestureEngine.IsEnabled = true;
+        Logger.Log("ContactsManager: FORCE enabled MouseLike mode for debugging");
     }
 
     public void InitializeSource(){
@@ -43,11 +50,60 @@ public class ContactsManager{
 
     // WindowProc Listener
     private IntPtr WindowProcess(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam){
+        // 在MouseLike模式下，阻止所有鼠标相关的Windows消息
+        if (_mouseLikeGestureEngine.IsEnabled)
+        {
+            switch (message)
+            {
+                // 阻止所有鼠标按钮消息
+                case 0x0201: // WM_LBUTTONDOWN
+                case 0x0202: // WM_LBUTTONUP
+                case 0x0204: // WM_RBUTTONDOWN
+                case 0x0205: // WM_RBUTTONUP
+                case 0x0207: // WM_MBUTTONDOWN
+                case 0x0208: // WM_MBUTTONUP
+                case 0x020B: // WM_XBUTTONDOWN
+                case 0x020C: // WM_XBUTTONUP
+                case 0x0203: // WM_LBUTTONDBLCLK
+                case 0x0206: // WM_RBUTTONDBLCLK
+                case 0x0209: // WM_MBUTTONDBLCLK
+                case 0x020D: // WM_XBUTTONDBLCLK
+                // 阻止鼠标移动和滚轮消息
+                case 0x0200: // WM_MOUSEMOVE
+                case 0x020A: // WM_MOUSEWHEEL
+                case 0x020E: // WM_MOUSEHWHEEL
+                // 阻止非客户端区域鼠标消息
+                case 0x00A0: // WM_NCMOUSEMOVE
+                case 0x00A1: // WM_NCLBUTTONDOWN
+                case 0x00A2: // WM_NCLBUTTONUP
+                case 0x00A4: // WM_NCRBUTTONDOWN
+                case 0x00A5: // WM_NCRBUTTONUP
+                case 0x00A7: // WM_NCMBUTTONDOWN
+                case 0x00A8: // WM_NCMBUTTONUP
+                    Logger.Log($"ContactsManager: Blocked mouse message 0x{message:X4} in MouseLike mode");
+                    return IntPtr.Zero; // 完全阻止这些消息
+            }
+        }
+
         switch(message){
             case TouchpadHelper.WM_INPUT:
                 var (contacts, count) = TouchpadHelper.ParseInput(lParam);
-                ReceiveTouchpadContacts(contacts, count);
-                break;
+
+                // 如果MouseLike模式启用，处理触摸事件但不传播给原生系统
+                if (_mouseLikeGestureEngine.IsEnabled)
+                {
+                    Logger.Log($"ContactsManager: Intercepted {count} contacts for MouseLike mode (blocking system)");
+                    ReceiveTouchpadContacts(contacts, count);
+
+                    // 重要：不调用DefWindowProc，阻止消息传播到系统和原生触摸板处理
+                    return IntPtr.Zero;
+                }
+                else
+                {
+                    // MouseLike模式未启用，正常处理和传播
+                    ReceiveTouchpadContacts(contacts, count);
+                    break;
+                }
             case TouchpadHelper.WM_INPUT_DEVICE_CHANGE:
                 _source.OnTouchpadInitialized(TouchpadHelper.Exists(), true);
                 break;
@@ -156,20 +212,68 @@ public class ContactsManager{
     }
 
     /// <summary>
-    /// 处理触摸板接触点 - 支持MouseLike和ThreeFingerDrag两种模式
+    /// 处理触摸板接触点 - 完全支持MouseLike模式，屏蔽原生行为
     /// </summary>
     /// <param name="contacts">接触点列表</param>
     private void ProcessTouchpadContacts(List<TouchpadContact> contacts)
     {
-        // 如果MouseLike模式启用，优先使用MouseLike手势引擎
+        // 如果MouseLike模式启用，完全使用MouseLike手势引擎，屏蔽所有原生触摸板行为
         if (_mouseLikeGestureEngine.IsEnabled)
         {
-            _mouseLikeGestureEngine.ProcessContacts(contacts.ToArray());
+            Logger.Log($"ContactsManager: Routing {contacts?.Count ?? 0} contacts to MouseLike engine (blocking native behavior)");
+
+            // 确保MouseLike引擎能够处理接触点数据
+            if (contacts != null && contacts.Count > 0)
+            {
+                // 启用MouseLike模式标志，确保其他组件知道当前处于MouseLike模式
+                _mouseLikeGestureEngine.ProcessContacts(contacts.ToArray());
+                Logger.Log($"ContactsManager: Successfully processed {contacts.Count} contacts in MouseLike mode");
+            }
+            else
+            {
+                // 处理空的接触点数据（手指离开）
+                _mouseLikeGestureEngine.ProcessContacts(new TouchpadContact[0]);
+                Logger.Log("ContactsManager: Processed empty contacts (fingers up) in MouseLike mode");
+            }
+
+            // 重要：不调用原生触摸板处理，完全屏蔽Windows原生触摸板行为
+            // 这样就不会有单击、双击等原生触摸板事件
+            return;
         }
-        else
+
+        // 否则使用原来的三指拖拽功能
+        Logger.Log($"ContactsManager: Routing {contacts.Count} contacts to ThreeFingerDrag engine");
+        _source.OnTouchpadContact(contacts);
+    }
+
+    /// <summary>
+    /// 从SettingsData加载MouseLike设置
+    /// </summary>
+    private void LoadMouseLikeSettings()
+    {
+        try
         {
-            // 否则使用原来的三指拖拽功能
-            _source.OnTouchpadContact(contacts);
+            var settingsData = App.SettingsData;
+            if (settingsData != null && _mouseLikeGestureEngine != null)
+            {
+                // 设置引擎状态
+                _mouseLikeGestureEngine.IsEnabled = settingsData.MouseLikeModeEnabled;
+                _mouseLikeGestureEngine.UpdateSettings(settingsData.MouseLikeSensitivity, settingsData.MouseLikeThumbScale);
+                _mouseLikeGestureEngine.Settings.JitterOffset = settingsData.MouseLikeJitterOffset;
+
+                Logger.Log($"ContactsManager: MouseLike settings loaded - Enabled: {_mouseLikeGestureEngine.IsEnabled}, " +
+                          $"Sensitivity: {_mouseLikeGestureEngine.Settings.MouseSensitivity}, " +
+                          $"ThumbScale: {_mouseLikeGestureEngine.Settings.ThumbScale}, " +
+                          $"JitterOffset: {_mouseLikeGestureEngine.Settings.JitterOffset}");
+            }
+            else
+            {
+                Logger.Log("ContactsManager: Unable to load MouseLike settings - SettingsData or engine is null");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"ContactsManager: Error loading MouseLike settings - {ex.Message}");
         }
     }
 }

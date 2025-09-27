@@ -52,48 +52,40 @@ public static class DistanceCalculator
     }
 
     /// <summary>
-    /// 判断手指是否处于合拢状态
-    /// 移植自驱动中的中键判断逻辑
+    /// 判断手指是否处于有效分开状态 (简化版，移除合拢检测)
+    /// 移植自驱动中的按键判断逻辑
     /// </summary>
     /// <param name="finger1">手指1位置</param>
     /// <param name="finger2">手指2位置</param>
     /// <param name="settings">手势设置</param>
-    /// <returns>是否合拢</returns>
-    public static bool IsClosed(Point finger1, Point finger2, GestureSettings settings)
-    {
-        float distance = CalculateDistance(finger1, finger2);
-        return distance >= settings.FingerMinDistance && distance < settings.FingerClosedThreshold;
-    }
-
-    /// <summary>
-    /// 判断手指是否处于分开状态
-    /// 移植自驱动中的左键判断逻辑
-    /// </summary>
-    /// <param name="finger1">手指1位置</param>
-    /// <param name="finger2">手指2位置</param>
-    /// <param name="settings">手势设置</param>
-    /// <returns>是否分开</returns>
+    /// <returns>是否在有效范围内</returns>
     public static bool IsSeparated(Point finger1, Point finger2, GestureSettings settings)
     {
         float distance = CalculateDistance(finger1, finger2);
-        return distance >= settings.FingerClosedThreshold && distance <= settings.FingerMaxDistance;
+        return distance >= settings.FingerMinDistance && distance <= settings.FingerMaxDistance;
     }
 
     /// <summary>
-    /// 消除微小抖动
-    /// 移植自驱动中的抖动消除算法
+    /// 消除微小抖动 - 针对MouseLike模式优化，几乎不过滤以减少漂移
+    /// 基于驱动逻辑改进，减少过度过滤
     /// </summary>
     /// <param name="value">原始值</param>
     /// <param name="jitterOffset">抖动阈值</param>
     /// <returns>消除抖动后的值</returns>
     public static float RemoveJitter(float value, float jitterOffset)
     {
-        return Math.Abs(value) <= jitterOffset ? 0 : value;
+        // 极小的抖动阈值，几乎不过滤以避免鼠标漂移
+        float threshold = Math.Max(jitterOffset * 0.05f, 0.1f); // 最小0.1像素阈值，非常敏感
+
+        if (Math.Abs(value) <= threshold)
+            return 0;
+
+        return value;
     }
 
     /// <summary>
-    /// 应用鼠标敏感度计算
-    /// 移植自驱动中的指针移动计算
+    /// 应用鼠标敏感度计算 - 改进版本，增加亚像素累积
+    /// 移植自驱动中的指针移动计算，改进版本
     /// </summary>
     /// <param name="delta">原始移动增量</param>
     /// <param name="sensitivity">敏感度</param>
@@ -101,20 +93,14 @@ public static class DistanceCalculator
     /// <returns>计算后的移动值</returns>
     public static Point ApplySensitivity(Point delta, float sensitivity, float thumbScale)
     {
+        // 如果没有移动，直接返回零
+        if (delta.x == 0 && delta.y == 0)
+            return Point.Zero;
+
         float adjustedX = (delta.x / thumbScale) * sensitivity;
         float adjustedY = (delta.y / thumbScale) * sensitivity;
 
-        // 处理精细移动 - 移植自驱动中的亚像素处理
-        int resultX = (int)adjustedX;
-        int resultY = (int)adjustedY;
-
-        // 如果值在0.5-1之间，确保有移动
-        if (Math.Abs(adjustedX) > 0.5 && Math.Abs(adjustedX) < 1)
-            resultX = adjustedX > 0 ? 1 : -1;
-
-        if (Math.Abs(adjustedY) > 0.5 && Math.Abs(adjustedY) < 1)
-            resultY = adjustedY > 0 ? 1 : -1;
-
-        return new Point(resultX, resultY);
+        // 改进的亚像素处理 - 四舍五入减少漂移
+        return new Point((int)Math.Round(adjustedX), (int)Math.Round(adjustedY));
     }
 }

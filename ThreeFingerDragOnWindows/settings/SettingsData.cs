@@ -40,6 +40,12 @@ public class SettingsData{
     public int ThreeFingerDragStartThreshold { get; set; } = 100;
     public int ThreeFingerDragStopThreshold { get; set; } = 10;
 
+    // MouseLike Mode Settings
+    public bool MouseLikeModeEnabled { get; set; } = true; // 临时默认启用以便测试
+    public float MouseLikeSensitivity { get; set; } = 1.0f;
+    public float MouseLikeThumbScale { get; set; } = 1.0f;
+    public float MouseLikeJitterOffset { get; set; } = 10f;
+
     // Other settings
 
     public enum StartupActionType{
@@ -54,7 +60,7 @@ public class SettingsData{
 
     public bool RunElevated { get; set; } = false;
 
-    public bool RecordLogs { get; set; } = false;
+    public bool RecordLogs { get; set; } = true; // 默认启用日志记录以便调试
 
 
     public static SettingsData load(){

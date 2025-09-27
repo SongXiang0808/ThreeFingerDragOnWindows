@@ -61,7 +61,24 @@ public class MouseLikeGestureEngine
     public void ProcessContacts(TouchpadContact[] contacts)
     {
         if (!_isEnabled)
+        {
+            Logger.Log("MouseLikeGestureEngine: Disabled, skipping contact processing");
             return;
+        }
+
+        Logger.Log($"MouseLikeGestureEngine: *** PROCESSING {contacts?.Length ?? 0} contacts ***");
+
+        if (contacts != null && contacts.Length > 0)
+        {
+            for (int i = 0; i < contacts.Length; i++)
+            {
+                Logger.Log($"  >> Contact {i}: ID={contacts[i].ContactId}, Pos=({contacts[i].X:F1}, {contacts[i].Y:F1})");
+            }
+        }
+        else
+        {
+            Logger.Log("  >> No contacts (fingers up)");
+        }
 
         try
         {
@@ -85,6 +102,7 @@ public class MouseLikeGestureEngine
         // 处理指针移动
         if (result.PointerDelta.x != 0 || result.PointerDelta.y != 0)
         {
+            Logger.Log($"MouseLikeGestureEngine: Moving cursor by ({result.PointerDelta.x}, {result.PointerDelta.y})");
             MouseOperations.ShiftCursorPosition(result.PointerDelta.x, result.PointerDelta.y);
         }
 

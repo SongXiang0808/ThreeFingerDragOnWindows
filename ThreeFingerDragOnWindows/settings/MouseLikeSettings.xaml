@@ -137,11 +137,15 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Reset Button -->
-                <Button x:Name="ResetSettingsButton"
-                       Content="重置为默认设置"
-                       HorizontalAlignment="Left"
-                       Click="ResetSettingsButton_Click"/>
+                <!-- Action Buttons -->
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <Button x:Name="ResetSettingsButton"
+                           Content="重置为默认设置"
+                           Click="ResetSettingsButton_Click"/>
+                    <Button x:Name="ShowLogFileButton"
+                           Content="查看调试日志"
+                           Click="ShowLogFileButton_Click"/>
+                </StackPanel>
 
             </StackPanel>
 

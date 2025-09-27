@@ -8,5 +8,9 @@
 		<RootNamespace>ThreeFingerDragOnWindows</RootNamespace>
     </PropertyGroup>
 
+    <ItemGroup>
+      <None Remove="nul" />
+    </ItemGroup>
+
 
 </Project>

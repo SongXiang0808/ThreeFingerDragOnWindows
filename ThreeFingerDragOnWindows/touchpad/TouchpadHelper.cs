@@ -64,7 +64,21 @@ internal static class TouchpadHelper {
         var device = new RAWINPUTDEVICE{
             usUsagePage = 0x000D,
             usUsage = 0x0005,
-            dwFlags = 0x00002100, // Messages come even if the window is in the background/foreground.
+            dwFlags = 0x00000100, // RIDEV_INPUTSINK - 接收所有输入，包括后台
+            hwndTarget = hwndTarget
+        };
+
+        return RegisterRawInputDevices(new[]{ device }, 1, (uint) Marshal.SizeOf<RAWINPUTDEVICE>());
+    }
+
+    /// <summary>
+    /// 注册独占的触摸板输入 - 完全接管触摸板，阻止系统处理
+    /// </summary>
+    public static bool RegisterExclusiveInput(IntPtr hwndTarget){
+        var device = new RAWINPUTDEVICE{
+            usUsagePage = 0x000D,
+            usUsage = 0x0005,
+            dwFlags = 0x00000101, // RIDEV_INPUTSINK | RIDEV_NOLEGACY - 阻止传统消息
             hwndTarget = hwndTarget
         };
 

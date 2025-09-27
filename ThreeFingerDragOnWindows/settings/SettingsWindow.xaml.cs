@@ -40,10 +40,10 @@ public sealed partial class SettingsWindow {
 
     private void NavigationView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs e){
         // 添加这些调试代码
-        System.Diagnostics.Debug.WriteLine($"e.SelectedItem: {e.SelectedItem}");
-        System.Diagnostics.Debug.WriteLine($"MouseLike: {MouseLike}");
-        System.Diagnostics.Debug.WriteLine($"e.SelectedItem is null: {e.SelectedItem == null}");
-        System.Diagnostics.Debug.WriteLine($"MouseLike is null: {MouseLike == null}");
+        //System.Diagnostics.Debug.WriteLine($"e.SelectedItem: {e.SelectedItem}");
+        //System.Diagnostics.Debug.WriteLine($"MouseLike: {MouseLike}");
+        //System.Diagnostics.Debug.WriteLine($"e.SelectedItem is null: {e.SelectedItem == null}");
+        //System.Diagnostics.Debug.WriteLine($"MouseLike is null: {MouseLike == null}");
         if (e.SelectedItem.Equals(Touchpad)){
             sender.Header = "Touchpad";
             ContentFrame.Navigate(typeof(TouchpadSettings));
