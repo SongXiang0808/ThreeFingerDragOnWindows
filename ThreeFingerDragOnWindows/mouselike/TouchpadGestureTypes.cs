@@ -82,10 +82,8 @@ public struct MouseButtonState
 public class GestureSettings
 {
     /// <summary>手指间最小有效距离 (对应C++的FingerMinDistance)</summary>
-    public float FingerMinDistance { get; set; } = 12f; // 对应驱动中的默认值
+    public float FingerMinDistance { get; set; } = 80f; // 对应驱动中的默认值
 
-    /// <summary>手指合拢判断阈值距离 (对应C++的FingerClosedThresholdDistance)</summary>
-    public float FingerClosedThreshold { get; set; } = 25f; // 对应驱动中的默认值
 
     /// <summary>鼠标移动敏感度 (对应C++的MouseSensitivity_Value)</summary>
     public float MouseSensitivity { get; set; } = 1.0f; // 对应驱动中的默认值
@@ -94,10 +92,18 @@ public class GestureSettings
     public float ThumbScale { get; set; } = 1.0f; // 对应驱动中的默认值
 
     /// <summary>抖动消除偏移量 (对应C++的Jitter_Offset)</summary>
-    public float JitterOffset { get; set; } = 2f; // 对应驱动中的默认值
+    public float JitterOffset { get; set; } = 0.4f; // 对应驱动中的默认值
 
-    /// <summary>计算最大有效距离 (对应C++的FingerMaxDistance)</summary>
-    public float FingerMaxDistance => FingerMinDistance * 400f; // 对应驱动中的计算方式
+    /// <summary>手指最大有效水平距离</summary>
+    public float FingerMaxDistance { get; set; } = 520f;
+
+    /// <summary>允许的垂直偏移量</summary>
+    public float FingerVerticalTolerance { get; set; } = 200f;
+
+    /// <summary>是否启用中键模拟</summary>
+    public bool MiddleButtonEnabled { get; set; } = false;
+
+
 
     public bool PointerSimulationEnabled { get; set; } = false;
 }

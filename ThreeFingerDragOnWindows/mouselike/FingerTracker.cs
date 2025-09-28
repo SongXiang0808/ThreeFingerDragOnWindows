@@ -8,7 +8,7 @@ namespace ThreeFingerDragOnWindows.mouselike;
 
 /// <summary>
 /// Tracks Precision Touchpad contacts and maps them to the mouse-like gesture roles
-/// (pointer, buttons, scroll placeholders).
+/// (pointer, left button, right button).
 /// </summary>
 public sealed class FingerTracker
 {
@@ -56,8 +56,10 @@ public sealed class FingerTracker
     private int? _pointerId;
     private int? _leftButtonId;
     private int? _rightButtonId;
-    private int? _middleButtonId;
     private Point? _lastPointerPosition;
+
+    private const float SelectionHysteresis = 10f;
+    private const float RelaxedDistanceFactor = 0.5f;
 
     public FingerTracker(GestureSettings settings)
     {
@@ -71,7 +73,6 @@ public sealed class FingerTracker
         _pointerId = null;
         _leftButtonId = null;
         _rightButtonId = null;
-        _middleButtonId = null;
         _lastPointerPosition = null;
         Logger.Log("FingerTracker: Reset completed");
     }
@@ -84,7 +85,7 @@ public sealed class FingerTracker
         AssignButtons();
 
         var pointerDelta = CalculatePointerDelta();
-        var scrollDelta = Point.Zero; // Scroll wheel behaviour will be added in a later iteration.
+        var scrollDelta = Point.Zero; // Scroll wheel behaviour may be added later.
 
         var buttons = new MouseButtonState
         {
@@ -101,9 +102,9 @@ public sealed class FingerTracker
             IsGestureCompleted = AreAllContactsReleased()
         };
 
-        Logger.Log($"FingerTracker: Result - Pointer:{_pointerId?.ToString() ?? "none"}, L:{_leftButtonId?.ToString() ?? "none"}, R:{_rightButtonId?.ToString() ?? "none"}, M:{_middleButtonId?.ToString() ?? "none"}");
+        Logger.Log($"FingerTracker: Result - Pointer:{_pointerId?.ToString() ?? "none"}, L:{_leftButtonId?.ToString() ?? "none"}, R:{_rightButtonId?.ToString() ?? "none"}");
         Logger.Log($"FingerTracker: Movement - dx:{pointerDelta.x:F1}, dy:{pointerDelta.y:F1}");
-        Logger.Log($"FingerTracker: Buttons - L:{buttons.LeftButton}, R:{buttons.RightButton}, M:{buttons.MiddleButton}");
+        Logger.Log($"FingerTracker: Buttons - L:{buttons.LeftButton}, R:{buttons.RightButton}");
 
         CleanupInactiveContacts();
         return result;
@@ -144,16 +145,17 @@ public sealed class FingerTracker
         }
 
         var seenIds = new HashSet<int>(contacts.Select(c => c.ContactId));
-        foreach (var kvp in _contacts)
+        foreach (var (contactId, state) in _contacts.ToList())
         {
-            if (!seenIds.Contains(kvp.Key))
+            if (!seenIds.Contains(contactId))
             {
-                kvp.Value.Active = false;
-                kvp.Value.SeenThisFrame = false;
-                kvp.Value.LastSeen = DateTime.Now;
+                state.Active = false;
+                state.SeenThisFrame = false;
+                state.LastSeen = DateTime.Now;
             }
         }
     }
+
     private void AssignPointer()
     {
         if (_pointerId.HasValue &&
@@ -201,11 +203,9 @@ public sealed class FingerTracker
     {
         var previousLeftId = _leftButtonId;
         var previousRightId = _rightButtonId;
-        var previousMiddleId = _middleButtonId;
 
         _leftButtonId = null;
         _rightButtonId = null;
-        _middleButtonId = null;
 
         if (!_pointerId.HasValue ||
             !_contacts.TryGetValue(_pointerId.Value, out var pointerState) ||
@@ -218,12 +218,11 @@ public sealed class FingerTracker
         float bestLeftDistance = float.MaxValue;
         float bestRightDx = float.PositiveInfinity;
         float bestRightDistance = float.MaxValue;
-        float bestMiddleDistance = float.MaxValue;
 
         if (previousLeftId.HasValue &&
             _contacts.TryGetValue(previousLeftId.Value, out var previousLeft) &&
             previousLeft.Active &&
-            QualifiesAsLeft(previousLeft, pointerState))
+            QualifiesAsLeft(previousLeft, pointerState, relaxed: true))
         {
             var (dx, _, distance) = RelativeToPointer(previousLeft, pointerState);
             bestLeftDx = dx;
@@ -234,21 +233,12 @@ public sealed class FingerTracker
         if (previousRightId.HasValue &&
             _contacts.TryGetValue(previousRightId.Value, out var previousRight) &&
             previousRight.Active &&
-            QualifiesAsRight(previousRight, pointerState))
+            QualifiesAsRight(previousRight, pointerState, relaxed: true))
         {
             var (dx, _, distance) = RelativeToPointer(previousRight, pointerState);
             bestRightDx = dx;
             bestRightDistance = distance;
             _rightButtonId = previousRight.ContactId;
-        }
-
-        if (previousMiddleId.HasValue &&
-            _contacts.TryGetValue(previousMiddleId.Value, out var previousMiddle) &&
-            previousMiddle.Active &&
-            QualifiesAsMiddle(previousMiddle, pointerState))
-        {
-            bestMiddleDistance = RelativeToPointer(previousMiddle, pointerState).distance;
-            _middleButtonId = previousMiddle.ContactId;
         }
 
         foreach (var state in _contacts.Values)
@@ -261,7 +251,7 @@ public sealed class FingerTracker
             var (dx, dy, distance) = RelativeToPointer(state, pointerState);
 
             if (QualifiesAsLeft(state, pointerState) &&
-                (dx > bestLeftDx || (Math.Abs(dx - bestLeftDx) < 0.001f && distance < bestLeftDistance)))
+                ShouldReplaceLeft(dx, distance, ref bestLeftDx, ref bestLeftDistance))
             {
                 bestLeftDx = dx;
                 bestLeftDistance = distance;
@@ -270,18 +260,11 @@ public sealed class FingerTracker
             }
 
             if (QualifiesAsRight(state, pointerState) &&
-                (dx < bestRightDx || (Math.Abs(dx - bestRightDx) < 0.001f && distance < bestRightDistance)))
+                ShouldReplaceRight(dx, distance, ref bestRightDx, ref bestRightDistance))
             {
                 bestRightDx = dx;
                 bestRightDistance = distance;
                 _rightButtonId = state.ContactId;
-                continue;
-            }
-
-            if (QualifiesAsMiddle(state, pointerState) && distance < bestMiddleDistance)
-            {
-                bestMiddleDistance = distance;
-                _middleButtonId = state.ContactId;
             }
         }
 
@@ -296,38 +279,72 @@ public sealed class FingerTracker
             var (dx, dy, distance) = RelativeToPointer(rightState, pointerState);
             Logger.Log($"FingerTracker: Assigned RIGHT button to contact {_rightButtonId.Value} (dx:{dx:F1}, dy:{dy:F1}, dist:{distance:F1})");
         }
+    }
 
-        if (_middleButtonId.HasValue && _contacts.TryGetValue(_middleButtonId.Value, out var middleState))
+    private static bool ShouldReplaceLeft(float candidateDx, float candidateDistance, ref float currentDx, ref float currentDistance)
+    {
+        if (float.IsNegativeInfinity(currentDx))
         {
-            var (dx, dy, distance) = RelativeToPointer(middleState, pointerState);
-            Logger.Log($"FingerTracker: Assigned MIDDLE button to contact {_middleButtonId.Value} (dx:{dx:F1}, dy:{dy:F1}, dist:{distance:F1})");
+            return true;
         }
-    }
-    private bool QualifiesAsLeft(ContactState candidate, ContactState pointer)
-    {
-        var (dx, dy, distance) = RelativeToPointer(candidate, pointer);
-        return dx < 0 &&
-               distance >= _settings.FingerClosedThreshold &&
-               distance <= _settings.FingerMaxDistance &&
-               Math.Abs(dy) <= _settings.FingerMaxDistance;
-    }
-    //7.5*12
-    private bool QualifiesAsMiddle(ContactState candidate, ContactState pointer)
-    {
-        var (dx, dy, distance) = RelativeToPointer(candidate, pointer);
-        return dx < 0 &&
-               distance >= _settings.FingerMinDistance &&
-               distance < _settings.FingerClosedThreshold &&
-               Math.Abs(dy) <= _settings.FingerMaxDistance;
+
+        bool closerHorizontally = candidateDx > currentDx + SelectionHysteresis;
+        bool similarHorizontal = Math.Abs(candidateDx - currentDx) <= SelectionHysteresis && candidateDistance < currentDistance;
+        return closerHorizontally || similarHorizontal;
     }
 
-    private bool QualifiesAsRight(ContactState candidate, ContactState pointer)
+    private static bool ShouldReplaceRight(float candidateDx, float candidateDistance, ref float currentDx, ref float currentDistance)
     {
-        var (dx, dy, distance) = RelativeToPointer(candidate, pointer);
-        return dx > 0 &&
-               distance >= _settings.FingerMinDistance &&
-               distance <= _settings.FingerMaxDistance &&
-               Math.Abs(dy) <= _settings.FingerMaxDistance;
+        if (float.IsPositiveInfinity(currentDx))
+        {
+            return true;
+        }
+
+        bool closerHorizontally = candidateDx < currentDx - SelectionHysteresis;
+        bool similarHorizontal = Math.Abs(candidateDx - currentDx) <= SelectionHysteresis && candidateDistance < currentDistance;
+        return closerHorizontally || similarHorizontal;
+    }
+
+    private bool QualifiesAsLeft(ContactState candidate, ContactState pointer, bool relaxed = false)
+    {
+        var (dx, dy, _) = RelativeToPointer(candidate, pointer);
+        if (dx >= 0)
+        {
+            return false;
+        }
+
+        float horizontalDistance = Math.Abs(dx);
+        float minHorizontal = GetMinimumHorizontalThreshold(relaxed);
+        float maxHorizontal = Math.Max(_settings.FingerMaxDistance, minHorizontal + 10f);
+        float verticalTolerance = Math.Max(_settings.FingerVerticalTolerance, 20f);
+
+        return horizontalDistance >= minHorizontal &&
+               horizontalDistance <= maxHorizontal &&
+               Math.Abs(dy) <= verticalTolerance;
+    }
+
+    private bool QualifiesAsRight(ContactState candidate, ContactState pointer, bool relaxed = false)
+    {
+        var (dx, dy, _) = RelativeToPointer(candidate, pointer);
+        if (dx <= 0)
+        {
+            return false;
+        }
+
+        float horizontalDistance = Math.Abs(dx);
+        float minHorizontal = GetMinimumHorizontalThreshold(relaxed);
+        float maxHorizontal = Math.Max(_settings.FingerMaxDistance, minHorizontal + 10f);
+        float verticalTolerance = Math.Max(_settings.FingerVerticalTolerance, 20f);
+
+        return horizontalDistance >= minHorizontal &&
+               horizontalDistance <= maxHorizontal &&
+               Math.Abs(dy) <= verticalTolerance;
+    }
+
+    private float GetMinimumHorizontalThreshold(bool relaxed)
+    {
+        var baseValue = Math.Max(_settings.FingerMinDistance, 20f);
+        return relaxed ? Math.Max(baseValue * RelaxedDistanceFactor, 15f) : baseValue;
     }
 
     private (float dx, float dy, float distance) RelativeToPointer(ContactState candidate, ContactState pointer)
@@ -412,19 +429,11 @@ public sealed class FingerTracker
         {
             _rightButtonId = null;
         }
-        if (_middleButtonId.HasValue && (!_contacts.TryGetValue(_middleButtonId.Value, out var middle) || !middle.Active))
-        {
-            _middleButtonId = null;
-        }
     }
 
     private void ReleaseButtons()
     {
         _leftButtonId = null;
         _rightButtonId = null;
-        _middleButtonId = null;
     }
 }
-
-
-

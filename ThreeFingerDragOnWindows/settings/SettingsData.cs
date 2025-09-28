@@ -1,106 +1,233 @@
 using System;
+
 using System.Diagnostics;
+
 using System.IO;
+
 using System.Xml.Serialization;
+
 using Windows.Storage;
+
 using Microsoft.UI.Xaml;
+
 using Microsoft.UI.Xaml.Controls;
+
 using ThreeFingerDragOnWindows.utils;
+
 using WinUICommunity;
+
+
 
 namespace ThreeFingerDragOnWindows.settings;
 
-public class SettingsData{
-    private static int CURRENT_SETTINGS_VERSION = 4;
+
+
+public class SettingsData
+
+{
+
+    private static int CURRENT_SETTINGS_VERSION = 5;
+
+
 
     // Other
+
     public static bool DidVersionChanged { get; set; } = false;
+
     public int SettingsVersion { get; set; } = 0;
 
+
+
     // Three finger drag Settings
+
     public bool ThreeFingerDrag { get; set; } = true;
 
-    public enum ThreeFingerDragButtonType {
+
+
+    public enum ThreeFingerDragButtonType
+
+    {
+
         NONE,
+
         LEFT,
+
         RIGHT,
+
         MIDDLE,
+
     }
+
+
+
     public ThreeFingerDragButtonType ThreeFingerDragButton { get; set; } = ThreeFingerDragButtonType.LEFT;
 
+
+
     public bool ThreeFingerDragAllowReleaseAndRestart { get; set; } = true;
+
     public int ThreeFingerDragReleaseDelay { get; set; } = 500;
 
+
+
     public bool ThreeFingerDragCursorMove { get; set; } = true;
+
     public float ThreeFingerDragCursorSpeed { get; set; } = 30;
+
     public float ThreeFingerDragCursorAcceleration { get; set; } = 10;
+
     public int ThreeFingerDragCursorAveraging { get; set; } = 1;
-    public int ThreeFingerDragMaxFingerMoveDistance{ get; set; } = 0;
+
+    public int ThreeFingerDragMaxFingerMoveDistance { get; set; } = 0;
+
+
 
     public int ThreeFingerDragStartThreshold { get; set; } = 100;
+
     public int ThreeFingerDragStopThreshold { get; set; } = 10;
 
+
+
     // MouseLike Mode Settings
-    public bool MouseLikeModeEnabled { get; set; } = true; // 临时默认启用以便测试
+
+    public bool MouseLikeModeEnabled { get; set; } = true;
+
     public float MouseLikeSensitivity { get; set; } = 1.0f;
+
     public float MouseLikeThumbScale { get; set; } = 1.0f;
-    public float MouseLikeJitterOffset { get; set; } = 0.3f;
+
+    public float MouseLikeJitterOffset { get; set; } = 0.4f;
+
+    public float MouseLikeLeftRightMinDistance { get; set; } = 80f;
+
+    public float MouseLikeLeftRightMaxDistance { get; set; } = 520f;
+
+    public float MouseLikeLeftRightVerticalTolerance { get; set; } = 200f;
+
+    public bool MouseLikeMiddleButtonEnabled { get; set; } = false;
+
+
 
     // Other settings
 
-    public enum StartupActionType{
+    public enum StartupActionType
+
+    {
+
         NONE,
+
         ENABLE_ELEVATED_RUN_WITH_STARTUP,
+
         DISABLE_ELEVATED_RUN_WITH_STARTUP,
+
         ENABLE_ELEVATED_STARTUP,
+
         DISABLE_ELEVATED_STARTUP,
+
     }
+
+
 
     public StartupActionType StartupAction { get; set; } = StartupActionType.NONE;
 
+
+
     public bool RunElevated { get; set; } = false;
 
-    public bool RecordLogs { get; set; } = true; // 默认启用日志记录以便调试
 
 
-    public static SettingsData load(){
+    public bool RecordLogs { get; set; } = true;
+
+
+
+    public static SettingsData load()
+
+    {
+
         Logger.Log("Loading settings...");
 
-        var mySerializer = new XmlSerializer(typeof(SettingsData));
-        var myFileStream = new FileStream(getPath(true), FileMode.Open);
-        SettingsData up;
 
-        try{
-            up = (SettingsData)mySerializer.Deserialize(myFileStream);
-            myFileStream.Close();
-            Logger.Log($"Settings loaded, version = {up.SettingsVersion}");
-        } catch(Exception e){
-            Console.WriteLine(e);
-            myFileStream.Close();
-            up = new SettingsData();
-            up.save();
+
+        var serializer = new XmlSerializer(typeof(SettingsData));
+
+        SettingsData data;
+
+
+
+        try
+
+        {
+
+            using var stream = new FileStream(getPath(true), FileMode.Open, FileAccess.Read, FileShare.Read);
+
+            data = (SettingsData)serializer.Deserialize(stream);
+
+            Logger.Log($"Settings loaded, version = {data.SettingsVersion}");
+
         }
 
-        if(up.SettingsVersion < 1){
+        catch (Exception e)
+
+        {
+
+            Debug.WriteLine(e);
+
+            data = new SettingsData();
+
+            data.save();
+
+        }
+
+
+
+        if (data.SettingsVersion < 1)
+
+        {
+
             Logger.Log("Updating settings to version 1");
-            up.ThreeFingerDragCursorAcceleration *= 10;
-            up.save();
-        }
-        if(up.SettingsVersion < 2){
-            Logger.Log("Updating settings to version 2");
-            if(up.RunElevated && StartupManager.IsElevatedStartupOn()){
 
-                if(Utils.IsAppRunningAsAdministrator()){
+            data.ThreeFingerDragCursorAcceleration *= 10;
+
+            data.save();
+
+        }
+
+
+
+        if (data.SettingsVersion < 2)
+
+        {
+
+            Logger.Log("Updating settings to version 2");
+
+            if (data.RunElevated && StartupManager.IsElevatedStartupOn())
+
+            {
+
+                if (Utils.IsAppRunningAsAdministrator())
+
+                {
+
                     StartupManager.DisableElevatedStartup();
+
                     StartupManager.EnableElevatedStartup();
-                } else{
-                    Utils.runOnMainThreadAfter(2000, () => {
-                        if(App.SettingsWindow?.Content?.XamlRoot == null){
+
+                }
+
+                else
+
+                {
+
+                    Utils.runOnMainThreadAfter(2000, () =>
+                    {
+                        if (App.SettingsWindow?.Content?.XamlRoot == null)
+                        {
                             Logger.Log("SettingsWindow not ready, skipping v2.0.3 upgrade dialog");
                             return;
                         }
 
-                        ContentDialog dialog = new ContentDialog{
+                        ContentDialog dialog = new()
+                        {
                             XamlRoot = App.SettingsWindow.Content.XamlRoot,
                             Style = Application.Current.Resources["DefaultContentDialogStyle"] as Style,
                             Title = "Fixing startup task issue",
@@ -109,39 +236,128 @@ public class SettingsData{
                         };
                         dialog.ShowAsyncDraggable();
                     });
+
                 }
+
             }
 
         }
 
-        if(up.SettingsVersion != CURRENT_SETTINGS_VERSION){
-            DidVersionChanged = true;
-            up.save();
+
+
+        if (data.SettingsVersion < 5)
+
+        {
+
+            Logger.Log("Updating settings to version 5");
+
+            if (data.MouseLikeLeftRightMinDistance <= 0)
+
+            {
+
+                data.MouseLikeLeftRightMinDistance = 80f;
+
+            }
+
+            if (data.MouseLikeLeftRightMaxDistance <= 0)
+
+            {
+
+                data.MouseLikeLeftRightMaxDistance = 520f;
+
+            }
+
+            if (data.MouseLikeLeftRightVerticalTolerance <= 0)
+
+            {
+
+                data.MouseLikeLeftRightVerticalTolerance = 200f;
+
+            }
+
+            if (data.MouseLikeJitterOffset <= 0)
+
+            {
+
+                data.MouseLikeJitterOffset = 0.4f;
+
+            }
+
+            data.save();
+
         }
 
-        return up;
+
+
+        if (data.SettingsVersion != CURRENT_SETTINGS_VERSION)
+
+        {
+
+            DidVersionChanged = true;
+
+            data.save();
+
+        }
+
+
+
+        return data;
+
     }
 
-    public void save(){
+
+
+    public void save()
+
+    {
+
         SettingsVersion = CURRENT_SETTINGS_VERSION;
-        var mySerializer = new XmlSerializer(typeof(SettingsData));
-        var myWriter = new StreamWriter(getPath(false));
-        mySerializer.Serialize(myWriter, this);
-        myWriter.Close();
+
+        var serializer = new XmlSerializer(typeof(SettingsData));
+
+        using var writer = new StreamWriter(getPath(false));
+
+        serializer.Serialize(writer, this);
+
     }
 
-    private static string getPath(bool createIfEmpty){
+
+
+    private static string getPath(bool createIfEmpty)
+
+    {
+
         var dirPath = ApplicationData.Current.LocalFolder.Path;
+
         var filePath = Path.Combine(dirPath, "preferences.xml");
 
-        if(!Directory.Exists(dirPath) || !File.Exists(filePath)){
+
+
+        if (!Directory.Exists(dirPath) || !File.Exists(filePath))
+
+        {
+
             Logger.Log("First run: creating settings file");
+
             Directory.CreateDirectory(dirPath);
+
             DidVersionChanged = true;
-            if(createIfEmpty) new SettingsData().save();
+
+            if (createIfEmpty)
+
+            {
+
+                new SettingsData().save();
+
+            }
+
         }
 
+
+
         return filePath;
+
     }
+
 }
 

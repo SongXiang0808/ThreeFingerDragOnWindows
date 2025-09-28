@@ -284,105 +284,80 @@ public class ContactsManager{
         }
 
         return registrationOk;
-    }    
+    }
+
 
     private void LoadMouseLikeSettings()
-
     {
-
         try
-
         {
-
             var settingsData = App.SettingsData;
 
             if (settingsData != null && _mouseLikeGestureEngine != null)
-
             {
-
                 _mouseLikeGestureEngine.IsEnabled = settingsData.MouseLikeModeEnabled;
 
-
-
                 var clampedSensitivity = Math.Clamp(settingsData.MouseLikeSensitivity, 0.5f, 5f);
-
                 var clampedJitter = Math.Clamp(settingsData.MouseLikeJitterOffset, 0.1f, 2f);
+                var clampedMin = Math.Clamp(settingsData.MouseLikeLeftRightMinDistance, 20f, 2000f);
+                var clampedMax = Math.Clamp(settingsData.MouseLikeLeftRightMaxDistance, clampedMin + 10f, 4000f);
+                var clampedVertical = Math.Clamp(settingsData.MouseLikeLeftRightVerticalTolerance, 20f, 2000f);
 
-
-
-                bool normalizationNeeded = Math.Abs(clampedSensitivity - settingsData.MouseLikeSensitivity) > 0.001f ||
-
-                                            Math.Abs(clampedJitter - settingsData.MouseLikeJitterOffset) > 0.001f;
-
-
+                bool normalizationNeeded =
+                    Math.Abs(clampedSensitivity - settingsData.MouseLikeSensitivity) > 0.001f ||
+                    Math.Abs(clampedJitter - settingsData.MouseLikeJitterOffset) > 0.001f ||
+                    Math.Abs(clampedMin - settingsData.MouseLikeLeftRightMinDistance) > 0.001f ||
+                    Math.Abs(clampedMax - settingsData.MouseLikeLeftRightMaxDistance) > 0.001f ||
+                    Math.Abs(clampedVertical - settingsData.MouseLikeLeftRightVerticalTolerance) > 0.001f;
 
                 settingsData.MouseLikeSensitivity = clampedSensitivity;
-
                 settingsData.MouseLikeJitterOffset = clampedJitter;
-
-
+                settingsData.MouseLikeLeftRightMinDistance = clampedMin;
+                settingsData.MouseLikeLeftRightMaxDistance = clampedMax;
+                settingsData.MouseLikeLeftRightVerticalTolerance = clampedVertical;
 
                 _mouseLikeGestureEngine.UpdateSettings(clampedSensitivity, settingsData.MouseLikeThumbScale, false);
 
                 _mouseLikeGestureEngine.Settings.JitterOffset = clampedJitter;
-
-
+                _mouseLikeGestureEngine.Settings.FingerMinDistance = clampedMin;
+                _mouseLikeGestureEngine.Settings.FingerMaxDistance = clampedMax;
+                _mouseLikeGestureEngine.Settings.FingerVerticalTolerance = clampedVertical;
+                _mouseLikeGestureEngine.Settings.MiddleButtonEnabled = settingsData.MouseLikeMiddleButtonEnabled;
 
                 if (normalizationNeeded)
-
                 {
-
                     try
-
                     {
-
                         settingsData.save();
-
                         Logger.Log("ContactsManager: MouseLike settings normalized and saved");
-
                     }
-
                     catch (Exception saveEx)
-
                     {
-
                         Logger.Log($"ContactsManager: Failed to persist MouseLike normalization - {saveEx.Message}");
-
                     }
-
                 }
 
-
-
                 Logger.Log($"ContactsManager: MouseLike settings loaded - Enabled: {_mouseLikeGestureEngine.IsEnabled}, " +
-
                           $"Sensitivity: {_mouseLikeGestureEngine.Settings.MouseSensitivity}, " +
-
                           $"ThumbScale: {_mouseLikeGestureEngine.Settings.ThumbScale}, " +
-
-                          $"JitterOffset: {_mouseLikeGestureEngine.Settings.JitterOffset}");
-
+                          $"JitterOffset: {_mouseLikeGestureEngine.Settings.JitterOffset}, " +
+                          $"MinDistance: {_mouseLikeGestureEngine.Settings.FingerMinDistance}, " +
+                          $"MaxDistance: {_mouseLikeGestureEngine.Settings.FingerMaxDistance}, " +
+                          $"VerticalTolerance: {_mouseLikeGestureEngine.Settings.FingerVerticalTolerance}, " +
+                          $"MiddleEnabled: {_mouseLikeGestureEngine.Settings.MiddleButtonEnabled}");
             }
-
             else
-
             {
-
                 Logger.Log("ContactsManager: Unable to load MouseLike settings - SettingsData or engine is null");
-
             }
-
         }
-
         catch (Exception ex)
-
         {
-
             Logger.Log($"ContactsManager: Error loading MouseLike settings - {ex.Message}");
-
         }
-
     }
+
+
 
 
 
