@@ -102,9 +102,7 @@ public sealed class FingerTracker
             IsGestureCompleted = AreAllContactsReleased()
         };
 
-        Logger.Log($"FingerTracker: Result - Pointer:{_pointerId?.ToString() ?? "none"}, L:{_leftButtonId?.ToString() ?? "none"}, R:{_rightButtonId?.ToString() ?? "none"}");
-        Logger.Log($"FingerTracker: Movement - dx:{pointerDelta.x:F1}, dy:{pointerDelta.y:F1}");
-        Logger.Log($"FingerTracker: Buttons - L:{buttons.LeftButton}, R:{buttons.RightButton}");
+        // 移除频繁的日志输出以优化性能
 
         CleanupInactiveContacts();
         return result;
@@ -136,7 +134,7 @@ public sealed class FingerTracker
             {
                 state = new ContactState(contact);
                 _contacts[contact.ContactId] = state;
-                Logger.Log($"FingerTracker: Tracking new contact {contact.ContactId} at ({contact.X}, {contact.Y})");
+                // 新接触点跟踪 - 移除频繁日志
             }
             else
             {
@@ -189,14 +187,14 @@ public sealed class FingerTracker
 
             _pointerId = nearest.ContactId;
             _lastPointerPosition = nearest.CurrentPoint;
-            Logger.Log($"FingerTracker: Reassigned pointer to contact {nearest.ContactId} (nearest to last position)");
+            // 指针重新分配 - 移除频繁日志
             return;
         }
 
         var chosen = candidates.First();
         _pointerId = chosen.ContactId;
         _lastPointerPosition = chosen.CurrentPoint;
-        Logger.Log($"FingerTracker: Assigned pointer to contact {chosen.ContactId}");
+        // 指针分配 - 移除频繁日志
     }
 
     private void AssignButtons()
@@ -271,13 +269,13 @@ public sealed class FingerTracker
         if (_leftButtonId.HasValue && _contacts.TryGetValue(_leftButtonId.Value, out var leftState))
         {
             var (dx, dy, distance) = RelativeToPointer(leftState, pointerState);
-            Logger.Log($"FingerTracker: Assigned LEFT button to contact {_leftButtonId.Value} (dx:{dx:F1}, dy:{dy:F1}, dist:{distance:F1})");
+            // 左键分配 - 移除频繁日志
         }
 
         if (_rightButtonId.HasValue && _contacts.TryGetValue(_rightButtonId.Value, out var rightState))
         {
             var (dx, dy, distance) = RelativeToPointer(rightState, pointerState);
-            Logger.Log($"FingerTracker: Assigned RIGHT button to contact {_rightButtonId.Value} (dx:{dx:F1}, dy:{dy:F1}, dist:{distance:F1})");
+            // 右键分配 - 移除频繁日志
         }
     }
 
@@ -414,7 +412,7 @@ public sealed class FingerTracker
         foreach (var id in staleIds)
         {
             _contacts.Remove(id);
-            Logger.Log($"FingerTracker: Released contact {id}");
+            // 接触点释放 - 移除频繁日志
         }
 
         if (_pointerId.HasValue && (!_contacts.TryGetValue(_pointerId.Value, out var pointer) || !pointer.Active))

@@ -60,7 +60,7 @@ public class ContactsManager{
                 // 如果MouseLike模式启用，处理触摸事件但不传播给原生系统
                 if (_mouseLikeGestureEngine.IsEnabled)
                 {
-                    Logger.Log($"ContactsManager: Intercepted {count} contacts for MouseLike mode (blocking system)");
+                    // 频繁的接触点拦截日志 - 已移除以优化性能
                     ReceiveTouchpadContacts(contacts, count);
 
                     // 重要：不调用DefWindowProc，阻止消息传播到系统和原生触摸板处理
@@ -102,7 +102,7 @@ public class ContactsManager{
 
         // Regular contact list
         if(count == contacts.Count){
-            Logger.Log("+ Receiving regular contact list: " +  string.Join(", ", contacts.Select(c => c.ToString())));
+            // 常规接触点列表日志 - 已移除以优化性能
 
             // 处理触摸板接触点
             ProcessTouchpadContacts(contacts);
@@ -113,7 +113,7 @@ public class ContactsManager{
 
         // Partial contact list (always sent after an incomplete contact list)
         if(count == 0){
-            Logger.Log("Receiving partial contact list: " + string.Join(", ", contacts.Select(c => c.ToString())));
+            // 部分接触点列表日志 - 已移除以优化性能
             _lastContacts.AddRange(contacts);
             _lastContacts = RemoveDuplicates(_lastContacts);
 
@@ -130,7 +130,7 @@ public class ContactsManager{
 
             }
             if(_lastContacts.Count == _targetContactCount){
-                Logger.Log("+ LastContact list has correct length: " + string.Join(", ", _lastContacts.Select(c => c.ToString())));
+                // 接触点列表长度日志 - 已移除以优化性能
                 ProcessTouchpadContacts(_lastContacts);
                 _lastContacts.Clear();
             }
@@ -147,13 +147,13 @@ public class ContactsManager{
                 for(int i = 1; i <= _targetContactCount - _lastContacts.Count; i++){
                     _lastContacts.Add(new TouchpadContact(maxId + i, lastContact.X, lastContact.Y));
                 }
-                Logger.Log("+ Duplicated last contact to fulfil list: " + string.Join(", ", _lastContacts.Select(c => c.ToString())));
+                // 重复接触点日志 - 已移除以优化性能
             }else if(_lastContacts.Count > _targetContactCount){
                 Logger.Log("[WARNING] LastContact list has more contacts than expected: " + string.Join(", ", _lastContacts.Select(c => c.ToString())));
                 _lastContacts = _lastContacts.Take((int) _targetContactCount).ToList();
             }
 
-            Logger.Log("+ LastContact list has correct length: " + string.Join(", ", _lastContacts.Select(c => c.ToString())));
+            // 接触点列表处理日志 - 已移除以优化性能
 
             ProcessTouchpadContacts(_lastContacts);
             _lastContacts.Clear();
@@ -163,7 +163,7 @@ public class ContactsManager{
         if(count <= contacts.Count){
             Logger.Log("[WARNING] Received contact list with more contacts than expected: " + string.Join(", ", contacts.Select(c => c.ToString())));
             contacts = contacts.Take((int) count).ToList();
-            Logger.Log("+ Contact list has been clamped: " + string.Join(", ", contacts.Select(c => c.ToString())));
+            // 接触点列表裁剪日志 - 已移除以优化性能
             ProcessTouchpadContacts(contacts);
             _lastContacts.Clear();
             return;
@@ -172,7 +172,7 @@ public class ContactsManager{
         // Here, 0 < contacts.Length < count and lastContacts is empty: incomplete contact list
         _targetContactCount = count;
         _lastContacts = contacts;
-        Logger.Log("Receiving incomplete contact count, waiting for partial contacts: " + string.Join(", ", contacts.Select(c => c.ToString())));
+        // 不完整接触点计数日志 - 已移除以优化性能
     }
 
     private List<TouchpadContact> RemoveDuplicates(List<TouchpadContact> contacts){
@@ -197,20 +197,20 @@ public class ContactsManager{
         // 如果MouseLike模式启用，完全使用MouseLike手势引擎，屏蔽所有原生触摸板行为
         if (_mouseLikeGestureEngine.IsEnabled)
         {
-            Logger.Log($"ContactsManager: Routing {contacts?.Count ?? 0} contacts to MouseLike engine (blocking native behavior)");
+            // MouseLike引擎路由日志 - 已移除以优化性能
 
             // 确保MouseLike引擎能够处理接触点数据
             if (contacts != null && contacts.Count > 0)
             {
                 // 启用MouseLike模式标志，确保其他组件知道当前处于MouseLike模式
                 _mouseLikeGestureEngine.ProcessContacts(contacts.ToArray());
-                Logger.Log($"ContactsManager: Successfully processed {contacts.Count} contacts in MouseLike mode");
+                // MouseLike处理成功日志 - 已移除以优化性能
             }
             else
             {
                 // 处理空的接触点数据（手指离开）
                 _mouseLikeGestureEngine.ProcessContacts(new TouchpadContact[0]);
-                Logger.Log("ContactsManager: Processed empty contacts (fingers up) in MouseLike mode");
+                // 空接触点处理日志 - 已移除以优化性能
             }
 
             // 重要：不调用原生触摸板处理，完全屏蔽Windows原生触摸板行为
