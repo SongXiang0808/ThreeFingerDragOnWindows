@@ -97,5 +97,7 @@ public class GestureSettings
     public float JitterOffset { get; set; } = 2f; // 对应驱动中的默认值
 
     /// <summary>计算最大有效距离 (对应C++的FingerMaxDistance)</summary>
-    public float FingerMaxDistance => FingerMinDistance * 4f; // 对应驱动中的计算方式
+    public float FingerMaxDistance => FingerMinDistance * 400f; // 对应驱动中的计算方式
+
+    public bool PointerSimulationEnabled { get; set; } = false;
 }

@@ -36,8 +36,14 @@
         <AppxBundle>Always</AppxBundle>
         <HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
         <AppxPackageSigningEnabled>False</AppxPackageSigningEnabled>
-        <AppxBundlePlatforms>x86|x64|arm64</AppxBundlePlatforms>
+        <AppxBundlePlatforms>x86|x64</AppxBundlePlatforms>
     </PropertyGroup>
+    <ItemGroup>
+        <Compile Remove="settings\obj\**\*.cs" />
+        <None Remove="settings\obj\**\*" />
+        <Page Remove="settings\obj\**\*.xaml" />
+    </ItemGroup>
+
     <ItemGroup>
       <Content Remove="Assets\logo-44.altform-lightunplated_targetsize-16.png" />
       <Content Remove="Assets\logo-44.altform-lightunplated_targetsize-24.png" />
@@ -160,3 +166,5 @@
         <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
     </PropertyGroup>
 </Project>
+
+

@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.Runtime.InteropServices;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -18,6 +19,8 @@ public class ContactsManager{
 
     // MouseLike手势引擎
     private readonly MouseLikeGestureEngine _mouseLikeGestureEngine;
+    private bool _rawInputInitialized;
+    private bool _exclusiveRawInputRegistered;
 
     /// <summary>
     /// MouseLike手势引擎访问接口
@@ -32,59 +35,24 @@ public class ContactsManager{
 
         // 初始化MouseLike手势引擎
         _mouseLikeGestureEngine = new MouseLikeGestureEngine();
+        _mouseLikeGestureEngine.EnabledChanged += OnMouseLikeModeChanged;
 
         // 立即从SettingsData加载设置
         LoadMouseLikeSettings();
 
         // 强制启用MouseLike模式进行调试
-        _mouseLikeGestureEngine.IsEnabled = true;
-        Logger.Log("ContactsManager: FORCE enabled MouseLike mode for debugging");
     }
 
     public void InitializeSource(){
         var touchpadExists = TouchpadHelper.Exists();
-        var inputReceiverInstalled = TouchpadHelper.RegisterInput(_hwnd);
+        var inputReceiverInstalled = UpdateRawInputRegistration(_mouseLikeGestureEngine.IsEnabled);
+        _rawInputInitialized = true;
 
         _source.OnTouchpadInitialized(touchpadExists, inputReceiverInstalled);
     }
 
     // WindowProc Listener
     private IntPtr WindowProcess(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam){
-        // 在MouseLike模式下，阻止所有鼠标相关的Windows消息
-        if (_mouseLikeGestureEngine.IsEnabled)
-        {
-            switch (message)
-            {
-                // 阻止所有鼠标按钮消息
-                case 0x0201: // WM_LBUTTONDOWN
-                case 0x0202: // WM_LBUTTONUP
-                case 0x0204: // WM_RBUTTONDOWN
-                case 0x0205: // WM_RBUTTONUP
-                case 0x0207: // WM_MBUTTONDOWN
-                case 0x0208: // WM_MBUTTONUP
-                case 0x020B: // WM_XBUTTONDOWN
-                case 0x020C: // WM_XBUTTONUP
-                case 0x0203: // WM_LBUTTONDBLCLK
-                case 0x0206: // WM_RBUTTONDBLCLK
-                case 0x0209: // WM_MBUTTONDBLCLK
-                case 0x020D: // WM_XBUTTONDBLCLK
-                // 阻止鼠标移动和滚轮消息
-                case 0x0200: // WM_MOUSEMOVE
-                case 0x020A: // WM_MOUSEWHEEL
-                case 0x020E: // WM_MOUSEHWHEEL
-                // 阻止非客户端区域鼠标消息
-                case 0x00A0: // WM_NCMOUSEMOVE
-                case 0x00A1: // WM_NCLBUTTONDOWN
-                case 0x00A2: // WM_NCLBUTTONUP
-                case 0x00A4: // WM_NCRBUTTONDOWN
-                case 0x00A5: // WM_NCRBUTTONUP
-                case 0x00A7: // WM_NCMBUTTONDOWN
-                case 0x00A8: // WM_NCMBUTTONUP
-                    Logger.Log($"ContactsManager: Blocked mouse message 0x{message:X4} in MouseLike mode");
-                    return IntPtr.Zero; // 完全阻止这些消息
-            }
-        }
-
         switch(message){
             case TouchpadHelper.WM_INPUT:
                 var (contacts, count) = TouchpadHelper.ParseInput(lParam);
@@ -96,7 +64,7 @@ public class ContactsManager{
                     ReceiveTouchpadContacts(contacts, count);
 
                     // 重要：不调用DefWindowProc，阻止消息传播到系统和原生触摸板处理
-                    return IntPtr.Zero;
+                    break;
                 }
                 else
                 {
@@ -120,6 +88,15 @@ public class ContactsManager{
     private void ReceiveTouchpadContacts(List<TouchpadContact> contacts, uint count){
         if(contacts == null || contacts.Count == 0){
             Logger.Log("Receiving empty contacts with cC=" + count);
+            if (_mouseLikeGestureEngine.IsEnabled)
+            {
+                _mouseLikeGestureEngine.ProcessContacts(Array.Empty<TouchpadContact>());
+                MouseBlocker.SetSuppressionActive(false);
+            }
+            else
+            {
+                _source.OnTouchpadContact(new List<TouchpadContact>());
+            }
             return;
         }
 
@@ -249,31 +226,186 @@ public class ContactsManager{
     /// <summary>
     /// 从SettingsData加载MouseLike设置
     /// </summary>
-    private void LoadMouseLikeSettings()
+    private void OnMouseLikeModeChanged(bool isEnabled)
     {
-        try
+        Logger.Log($"ContactsManager: MouseLike mode changed -> {isEnabled}");
+        if (!_rawInputInitialized)
         {
-            var settingsData = App.SettingsData;
-            if (settingsData != null && _mouseLikeGestureEngine != null)
-            {
-                // 设置引擎状态
-                _mouseLikeGestureEngine.IsEnabled = settingsData.MouseLikeModeEnabled;
-                _mouseLikeGestureEngine.UpdateSettings(settingsData.MouseLikeSensitivity, settingsData.MouseLikeThumbScale);
-                _mouseLikeGestureEngine.Settings.JitterOffset = settingsData.MouseLikeJitterOffset;
+            return;
+        }
 
-                Logger.Log($"ContactsManager: MouseLike settings loaded - Enabled: {_mouseLikeGestureEngine.IsEnabled}, " +
-                          $"Sensitivity: {_mouseLikeGestureEngine.Settings.MouseSensitivity}, " +
-                          $"ThumbScale: {_mouseLikeGestureEngine.Settings.ThumbScale}, " +
-                          $"JitterOffset: {_mouseLikeGestureEngine.Settings.JitterOffset}");
+        var registrationOk = UpdateRawInputRegistration(isEnabled);
+        if (!registrationOk)
+        {
+            Logger.Log("ContactsManager: Failed to update raw input registration during mode toggle");
+        }
+    }
+
+    private bool UpdateRawInputRegistration(bool useExclusive)
+    {
+        bool registrationOk;
+
+        if (useExclusive)
+        {
+            registrationOk = TouchpadHelper.RegisterExclusiveInput(_hwnd);
+            if (!registrationOk)
+            {
+                var exclusiveError = Marshal.GetLastWin32Error();
+                Logger.Log($"ContactsManager: Exclusive raw input registration failed (error={exclusiveError}), falling back to shared mode");
+
+                registrationOk = TouchpadHelper.RegisterInput(_hwnd);
+                if (!registrationOk)
+                {
+                    var sharedError = Marshal.GetLastWin32Error();
+                    Logger.Log($"ContactsManager: Shared raw input registration failed (error={sharedError})");
+                }
+
+                _exclusiveRawInputRegistered = false;
             }
             else
             {
-                Logger.Log("ContactsManager: Unable to load MouseLike settings - SettingsData or engine is null");
+                _exclusiveRawInputRegistered = true;
             }
         }
-        catch (Exception ex)
+        else
         {
-            Logger.Log($"ContactsManager: Error loading MouseLike settings - {ex.Message}");
+            registrationOk = TouchpadHelper.RegisterInput(_hwnd);
+            if (!registrationOk)
+            {
+                var sharedError = Marshal.GetLastWin32Error();
+                Logger.Log($"ContactsManager: Raw input registration update failed (shared mode, error={sharedError})");
+            }
+            _exclusiveRawInputRegistered = false;
         }
+
+        if (registrationOk)
+        {
+            Logger.Log($"ContactsManager: Raw input registration updated (exclusive={_exclusiveRawInputRegistered})");
+        }
+
+        return registrationOk;
+    }    
+
+    private void LoadMouseLikeSettings()
+
+    {
+
+        try
+
+        {
+
+            var settingsData = App.SettingsData;
+
+            if (settingsData != null && _mouseLikeGestureEngine != null)
+
+            {
+
+                _mouseLikeGestureEngine.IsEnabled = settingsData.MouseLikeModeEnabled;
+
+
+
+                var clampedSensitivity = Math.Clamp(settingsData.MouseLikeSensitivity, 0.5f, 5f);
+
+                var clampedJitter = Math.Clamp(settingsData.MouseLikeJitterOffset, 0.1f, 2f);
+
+
+
+                bool normalizationNeeded = Math.Abs(clampedSensitivity - settingsData.MouseLikeSensitivity) > 0.001f ||
+
+                                            Math.Abs(clampedJitter - settingsData.MouseLikeJitterOffset) > 0.001f;
+
+
+
+                settingsData.MouseLikeSensitivity = clampedSensitivity;
+
+                settingsData.MouseLikeJitterOffset = clampedJitter;
+
+
+
+                _mouseLikeGestureEngine.UpdateSettings(clampedSensitivity, settingsData.MouseLikeThumbScale, false);
+
+                _mouseLikeGestureEngine.Settings.JitterOffset = clampedJitter;
+
+
+
+                if (normalizationNeeded)
+
+                {
+
+                    try
+
+                    {
+
+                        settingsData.save();
+
+                        Logger.Log("ContactsManager: MouseLike settings normalized and saved");
+
+                    }
+
+                    catch (Exception saveEx)
+
+                    {
+
+                        Logger.Log($"ContactsManager: Failed to persist MouseLike normalization - {saveEx.Message}");
+
+                    }
+
+                }
+
+
+
+                Logger.Log($"ContactsManager: MouseLike settings loaded - Enabled: {_mouseLikeGestureEngine.IsEnabled}, " +
+
+                          $"Sensitivity: {_mouseLikeGestureEngine.Settings.MouseSensitivity}, " +
+
+                          $"ThumbScale: {_mouseLikeGestureEngine.Settings.ThumbScale}, " +
+
+                          $"JitterOffset: {_mouseLikeGestureEngine.Settings.JitterOffset}");
+
+            }
+
+            else
+
+            {
+
+                Logger.Log("ContactsManager: Unable to load MouseLike settings - SettingsData or engine is null");
+
+            }
+
+        }
+
+        catch (Exception ex)
+
+        {
+
+            Logger.Log($"ContactsManager: Error loading MouseLike settings - {ex.Message}");
+
+        }
+
     }
+
+
+
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

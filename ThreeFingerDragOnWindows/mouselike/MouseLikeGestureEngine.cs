@@ -17,6 +17,7 @@ public class MouseLikeGestureEngine
 
     // 按键状态跟踪
     private MouseButtonState _lastButtonStates;
+    public event Action<bool>? EnabledChanged;
 
     public MouseLikeGestureEngine()
     {
@@ -36,16 +37,25 @@ public class MouseLikeGestureEngine
         get => _isEnabled;
         set
         {
+            if (_isEnabled == value)
+            {
+                return;
+            }
+
+            if (!value && _lastButtonStates.HasAnyButton)
+            {
+                ProcessButtonStates(new MouseButtonState());
+            }
+
             _isEnabled = value;
-            if (value)
-            {
-                _fingerTracker.Reset();
-                Logger.Log("MouseLikeGestureEngine: Enabled");
-            }
-            else
-            {
-                Logger.Log("MouseLikeGestureEngine: Disabled");
-            }
+
+            _fingerTracker.Reset();
+            _scrollProcessor.Reset();
+            _lastButtonStates = new MouseButtonState();
+
+            Logger.Log(value ? "MouseLikeGestureEngine: Enabled" : "MouseLikeGestureEngine: Disabled");
+
+            EnabledChanged?.Invoke(value);
         }
     }
 
@@ -66,9 +76,11 @@ public class MouseLikeGestureEngine
             return;
         }
 
+        bool hasContacts = contacts != null && contacts.Length > 0;
+
         Logger.Log($"MouseLikeGestureEngine: *** PROCESSING {contacts?.Length ?? 0} contacts ***");
 
-        if (contacts != null && contacts.Length > 0)
+        if (hasContacts)
         {
             for (int i = 0; i < contacts.Length; i++)
             {
@@ -84,7 +96,7 @@ public class MouseLikeGestureEngine
         {
             var gestureResult = _fingerTracker.ProcessContacts(contacts);
 
-            // 处理手势结果
+            // �������ƽ��
             ProcessGestureResult(gestureResult);
         }
         catch (Exception ex)
@@ -94,13 +106,16 @@ public class MouseLikeGestureEngine
     }
 
     /// <summary>
+    /// <summary>
+
+    /// <summary>
     /// 处理手势识别结果
     /// </summary>
     /// <param name="result">手势结果</param>
     private void ProcessGestureResult(GestureResult result)
     {
         // 处理指针移动
-        if (result.PointerDelta.x != 0 || result.PointerDelta.y != 0)
+        if (_settings.PointerSimulationEnabled && (result.PointerDelta.x != 0 || result.PointerDelta.y != 0))
         {
             Logger.Log($"MouseLikeGestureEngine: Moving cursor by ({result.PointerDelta.x}, {result.PointerDelta.y})");
             MouseOperations.ShiftCursorPosition(result.PointerDelta.x, result.PointerDelta.y);
@@ -194,7 +209,7 @@ public class MouseLikeGestureEngine
     /// </summary>
     /// <param name="sensitivity">鼠标敏感度</param>
     /// <param name="thumbScale">手指缩放</param>
-    public void UpdateSettings(float? sensitivity = null, float? thumbScale = null)
+    public void UpdateSettings(float? sensitivity = null, float? thumbScale = null, bool? pointerSimulationEnabled = null)
     {
         if (sensitivity.HasValue)
         {
@@ -207,5 +222,19 @@ public class MouseLikeGestureEngine
             _settings.ThumbScale = Math.Max(0.5f, Math.Min(2.0f, thumbScale.Value));
             Logger.Log($"MouseLikeGestureEngine: Thumb scale updated to {_settings.ThumbScale}");
         }
+
+        if (pointerSimulationEnabled.HasValue)
+        {
+            _settings.PointerSimulationEnabled = pointerSimulationEnabled.Value;
+            Logger.Log($"MouseLikeGestureEngine: Pointer simulation {(pointerSimulationEnabled.Value ? "enabled" : "disabled")}");
+        }
     }
 }
+
+
+
+
+
+
+
+

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Xml.Serialization;
@@ -44,7 +44,7 @@ public class SettingsData{
     public bool MouseLikeModeEnabled { get; set; } = true; // 临时默认启用以便测试
     public float MouseLikeSensitivity { get; set; } = 1.0f;
     public float MouseLikeThumbScale { get; set; } = 1.0f;
-    public float MouseLikeJitterOffset { get; set; } = 10f;
+    public float MouseLikeJitterOffset { get; set; } = 0.3f;
 
     // Other settings
 
@@ -144,3 +144,4 @@ public class SettingsData{
         return filePath;
     }
 }
+

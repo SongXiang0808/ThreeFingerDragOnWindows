@@ -1,281 +1,430 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using ThreeFingerDragEngine.utils;
-using ThreeFingerDragOnWindows.mouselike;
 using ThreeFingerDragOnWindows.utils;
 
-namespace ThreeFingerDragOnWindows.mouselike
+namespace ThreeFingerDragOnWindows.mouselike;
+
+/// <summary>
+/// Tracks Precision Touchpad contacts and maps them to the mouse-like gesture roles
+/// (pointer, buttons, scroll placeholders).
+/// </summary>
+public sealed class FingerTracker
 {
-    /// <summary>
-    /// 手指跟踪器 - 完全基于C++驱动MouseLikeTouchPad_parse函数重写
-    /// </summary>
-    public class FingerTracker
+    private sealed class ContactState
     {
-        private const int MAX_CONTACT_POINTS = 5;
-        private readonly GestureSettings _settings;
-
-        // 手指角色索引 (完全对应C++驱动的变量)
-        private int nMouse_Pointer_CurrentIndex = -1;
-        private int nMouse_LButton_CurrentIndex = -1;
-        private int nMouse_RButton_CurrentIndex = -1;
-        private int nMouse_MButton_CurrentIndex = -1;
-
-        private int nMouse_Pointer_LastIndex = -1;
-        private int nMouse_LButton_LastIndex = -1;
-        private int nMouse_RButton_LastIndex = -1;
-        private int nMouse_MButton_LastIndex = -1;
-
-        // 当前和上一帧的手指状态
-        private TouchpadContact[] currentFingers = new TouchpadContact[MAX_CONTACT_POINTS];
-        private TouchpadContact[] lastFingers = new TouchpadContact[MAX_CONTACT_POINTS];
-        private int currentFingerCount = 0;
-        private int lastFingerCount = 0;
-
-        public FingerTracker(GestureSettings settings)
+        public ContactState(TouchpadContact contact)
         {
-            _settings = settings ?? throw new ArgumentNullException(nameof(settings));
-            Reset();
+            ContactId = contact.ContactId;
+            Current = contact;
+            Active = true;
+            SeenThisFrame = true;
+            FirstSeen = DateTime.Now;
+            LastSeen = FirstSeen;
         }
 
-        /// <summary>
-        /// 重置跟踪器状态
-        /// </summary>
-        public void Reset()
+        public int ContactId { get; }
+        public TouchpadContact Current { get; private set; }
+        public TouchpadContact? Previous { get; private set; }
+        public bool SeenThisFrame { get; set; }
+        public bool Active { get; set; }
+        public DateTime FirstSeen { get; }
+        public DateTime LastSeen { get; set; }
+
+        public void Update(TouchpadContact contact)
         {
-            nMouse_Pointer_CurrentIndex = -1;
-            nMouse_LButton_CurrentIndex = -1;
-            nMouse_RButton_CurrentIndex = -1;
-            nMouse_MButton_CurrentIndex = -1;
-
-            nMouse_Pointer_LastIndex = -1;
-            nMouse_LButton_LastIndex = -1;
-            nMouse_RButton_LastIndex = -1;
-            nMouse_MButton_LastIndex = -1;
-
-            Array.Clear(currentFingers, 0, currentFingers.Length);
-            Array.Clear(lastFingers, 0, lastFingers.Length);
-            currentFingerCount = 0;
-            lastFingerCount = 0;
-
-            Logger.Log("FingerTracker: Reset completed");
-        }
-
-        /// <summary>
-        /// 处理新的触摸接触点 - 完全基于C++驱动逻辑
-        /// </summary>
-        public GestureResult ProcessContacts(TouchpadContact[] contacts)
-        {
-            Logger.Log($"FingerTracker: Processing {contacts?.Length ?? 0} contacts");
-
-            // 保存上一帧状态
-            SaveLastState();
-
-            // 更新当前状态
-            UpdateCurrentState(contacts);
-
-            // 核心手指分配逻辑 - 对应C++的MouseLikeTouchPad_parse
-            ProcessFingerAssignment();
-
-            // 计算鼠标移动
-            var movement = CalculateMovement();
-
-            // 生成手势结果
-            var result = new GestureResult
+            if (!SeenThisFrame)
             {
-                PointerDelta = new Point { x = movement.dx, y = movement.dy },
-                ButtonStates = new MouseButtonState
-                {
-                    LeftButton = nMouse_LButton_CurrentIndex != -1,
-                    RightButton = nMouse_RButton_CurrentIndex != -1,
-                    MiddleButton = nMouse_MButton_CurrentIndex != -1
-                },
-                ScrollDelta = new Point { x = 0, y = 0 },
-                IsGestureCompleted = false
-            };
-
-            Logger.Log($"FingerTracker: Result - Pointer:{nMouse_Pointer_CurrentIndex}, L:{nMouse_LButton_CurrentIndex}, R:{nMouse_RButton_CurrentIndex}, M:{nMouse_MButton_CurrentIndex}");
-            Logger.Log($"FingerTracker: Movement - dx:{movement.dx:F1}, dy:{movement.dy:F1}");
-            Logger.Log($"FingerTracker: Buttons - L:{result.ButtonStates.LeftButton}, R:{result.ButtonStates.RightButton}, M:{result.ButtonStates.MiddleButton}");
-
-            return result;
-        }
-
-        /// <summary>
-        /// 保存上一帧状态
-        /// </summary>
-        private void SaveLastState()
-        {
-            Array.Copy(currentFingers, lastFingers, currentFingers.Length);
-            lastFingerCount = currentFingerCount;
-
-            nMouse_Pointer_LastIndex = nMouse_Pointer_CurrentIndex;
-            nMouse_LButton_LastIndex = nMouse_LButton_CurrentIndex;
-            nMouse_RButton_LastIndex = nMouse_RButton_CurrentIndex;
-            nMouse_MButton_LastIndex = nMouse_MButton_CurrentIndex;
-        }
-
-        /// <summary>
-        /// 更新当前状态
-        /// </summary>
-        private void UpdateCurrentState(TouchpadContact[] contacts)
-        {
-            Array.Clear(currentFingers, 0, currentFingers.Length);
-            currentFingerCount = 0;
-
-            if (contacts != null)
-            {
-                for (int i = 0; i < Math.Min(contacts.Length, MAX_CONTACT_POINTS); i++)
-                {
-                    currentFingers[i] = contacts[i];
-                }
-                currentFingerCount = contacts.Length;
+                Previous = Current;
             }
 
-            Logger.Log($"FingerTracker: Updated state - current:{currentFingerCount}, last:{lastFingerCount}");
+            Current = contact;
+            SeenThisFrame = true;
+            Active = true;
+            LastSeen = DateTime.Now;
         }
 
-        /// <summary>
-        /// 核心手指分配逻辑 - 完全对应C++驱动的逻辑
-        /// </summary>
-        private void ProcessFingerAssignment()
-        {
-            // 1. 如果没有指针且有手指，分配第一个手指为指针
-            if (nMouse_Pointer_LastIndex == -1 && currentFingerCount > 0)
-            {
-                // 找到第一个有效的手指作为指针
-                for (int i = 0; i < currentFingerCount; i++)
-                {
-                    if (IsValidContact(currentFingers[i]))
-                    {
-                        nMouse_Pointer_CurrentIndex = i;
-                        Logger.Log($"FingerTracker: Assigned pointer to finger {i}");
-                        break;
-                    }
-                }
-            }
-            // 2. 如果指针丢失，重置所有角色
-            else if (nMouse_Pointer_CurrentIndex == -1 && nMouse_Pointer_LastIndex != -1)
-            {
-                Logger.Log("FingerTracker: Pointer lost, resetting all roles");
-                nMouse_Pointer_CurrentIndex = -1;
-                nMouse_LButton_CurrentIndex = -1;
-                nMouse_RButton_CurrentIndex = -1;
-                nMouse_MButton_CurrentIndex = -1;
-            }
-            // 3. 如果有指针，分配其他手指的角色
-            else if (nMouse_Pointer_CurrentIndex != -1)
-            {
-                // 重置按钮角色
-                nMouse_LButton_CurrentIndex = -1;
-                nMouse_RButton_CurrentIndex = -1;
-                nMouse_MButton_CurrentIndex = -1;
+        public bool HasPrevious => Previous.HasValue;
+        public Point CurrentPoint => new(Current.X, Current.Y);
+        public Point? PreviousPoint => Previous.HasValue ? new Point(Previous.Value.X, Previous.Value.Y) : null;
+    }
 
-                // 分配按钮角色
-                AssignButtonRoles();
+    private readonly GestureSettings _settings;
+    private readonly Dictionary<int, ContactState> _contacts = new();
+
+    private int? _pointerId;
+    private int? _leftButtonId;
+    private int? _rightButtonId;
+    private int? _middleButtonId;
+    private Point? _lastPointerPosition;
+
+    public FingerTracker(GestureSettings settings)
+    {
+        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        Reset();
+    }
+
+    public void Reset()
+    {
+        _contacts.Clear();
+        _pointerId = null;
+        _leftButtonId = null;
+        _rightButtonId = null;
+        _middleButtonId = null;
+        _lastPointerPosition = null;
+        Logger.Log("FingerTracker: Reset completed");
+    }
+
+    public GestureResult ProcessContacts(TouchpadContact[] contacts)
+    {
+        UpdateContactStates(contacts);
+
+        AssignPointer();
+        AssignButtons();
+
+        var pointerDelta = CalculatePointerDelta();
+        var scrollDelta = Point.Zero; // Scroll wheel behaviour will be added in a later iteration.
+
+        var buttons = new MouseButtonState
+        {
+            LeftButton = _leftButtonId.HasValue,
+            RightButton = _rightButtonId.HasValue,
+            MiddleButton = false
+        };
+
+        var result = new GestureResult
+        {
+            PointerDelta = pointerDelta,
+            ButtonStates = buttons,
+            ScrollDelta = scrollDelta,
+            IsGestureCompleted = AreAllContactsReleased()
+        };
+
+        Logger.Log($"FingerTracker: Result - Pointer:{_pointerId?.ToString() ?? "none"}, L:{_leftButtonId?.ToString() ?? "none"}, R:{_rightButtonId?.ToString() ?? "none"}, M:{_middleButtonId?.ToString() ?? "none"}");
+        Logger.Log($"FingerTracker: Movement - dx:{pointerDelta.x:F1}, dy:{pointerDelta.y:F1}");
+        Logger.Log($"FingerTracker: Buttons - L:{buttons.LeftButton}, R:{buttons.RightButton}, M:{buttons.MiddleButton}");
+
+        CleanupInactiveContacts();
+        return result;
+    }
+
+    private void UpdateContactStates(TouchpadContact[] contacts)
+    {
+        foreach (var state in _contacts.Values)
+        {
+            state.SeenThisFrame = false;
+        }
+
+        if (contacts == null || contacts.Length == 0)
+        {
+            foreach (var state in _contacts.Values)
+            {
+                state.Active = false;
+            }
+
+            ReleaseButtons();
+            _pointerId = null;
+            _lastPointerPosition = null;
+            return;
+        }
+
+        foreach (var contact in contacts)
+        {
+            if (!_contacts.TryGetValue(contact.ContactId, out var state))
+            {
+                state = new ContactState(contact);
+                _contacts[contact.ContactId] = state;
+                Logger.Log($"FingerTracker: Tracking new contact {contact.ContactId} at ({contact.X}, {contact.Y})");
+            }
+            else
+            {
+                state.Update(contact);
             }
         }
 
-        /// <summary>
-        /// 分配按钮角色 - 完全对应C++驱动的逻辑
-        /// </summary>
-        private void AssignButtonRoles()
+        var seenIds = new HashSet<int>(contacts.Select(c => c.ContactId));
+        foreach (var kvp in _contacts)
         {
-            if (currentFingerCount <= 1) return;
-
-            var pointerContact = currentFingers[nMouse_Pointer_CurrentIndex];
-            Logger.Log($"FingerTracker: Pointer at ({pointerContact.X}, {pointerContact.Y})");
-
-            for (int i = 0; i < currentFingerCount; i++)
+            if (!seenIds.Contains(kvp.Key))
             {
-                // 跳过指针手指和无效手指
-                if (i == nMouse_Pointer_CurrentIndex || !IsValidContact(currentFingers[i]))
-                    continue;
-
-                // 跳过已分配的手指
-                if (i == nMouse_LButton_CurrentIndex || i == nMouse_RButton_CurrentIndex || i == nMouse_MButton_CurrentIndex)
-                    continue;
-
-                var fingerContact = currentFingers[i];
-                float dx = fingerContact.X - pointerContact.X;
-                float dy = fingerContact.Y - pointerContact.Y;
-                float distance = (float)Math.Sqrt(dx * dx + dy * dy);
-
-                Logger.Log($"FingerTracker: Finger {i} at ({fingerContact.X}, {fingerContact.Y}), dx:{dx:F1}, dy:{dy:F1}, distance:{distance:F1}");
-
-                // 按C++驱动的逻辑分配角色
-                if (nMouse_MButton_CurrentIndex == -1 &&
-                    distance > _settings.FingerMinDistance &&
-                    distance < _settings.FingerClosedThreshold &&
-                    dx < 0)
-                {
-                    // 左侧合拢 - 中键
-                    nMouse_MButton_CurrentIndex = i;
-                    Logger.Log($"FingerTracker: Assigned MIDDLE button to finger {i} (closed left, distance:{distance:F1})");
-                }
-                else if (nMouse_LButton_CurrentIndex == -1 &&
-                         distance > _settings.FingerClosedThreshold &&
-                         distance < _settings.FingerMaxDistance &&
-                         dx < 0)
-                {
-                    // 左侧分开 - 左键
-                    nMouse_LButton_CurrentIndex = i;
-                    Logger.Log($"FingerTracker: Assigned LEFT button to finger {i} (separated left, distance:{distance:F1})");
-                }
-                else if (nMouse_RButton_CurrentIndex == -1 &&
-                         distance > _settings.FingerMinDistance &&
-                         distance < _settings.FingerMaxDistance &&
-                         dx > 0)
-                {
-                    // 右侧 - 右键
-                    nMouse_RButton_CurrentIndex = i;
-                    Logger.Log($"FingerTracker: Assigned RIGHT button to finger {i} (right side, distance:{distance:F1})");
-                }
+                kvp.Value.Active = false;
+                kvp.Value.SeenThisFrame = false;
+                kvp.Value.LastSeen = DateTime.Now;
             }
-        }
-
-        /// <summary>
-        /// 检查接触点是否有效
-        /// </summary>
-        private bool IsValidContact(TouchpadContact contact)
-        {
-            // 对应C++的 Confidence && TipSwitch 检查
-            return contact.ContactId >= 0; // 简化的有效性检查
-        }
-
-        /// <summary>
-        /// 计算鼠标移动 - 对应C++驱动的移动计算逻辑
-        /// </summary>
-        private (float dx, float dy) CalculateMovement()
-        {
-            if (nMouse_Pointer_CurrentIndex == -1 || nMouse_Pointer_LastIndex == -1)
-                return (0, 0);
-
-            var currentPointer = currentFingers[nMouse_Pointer_CurrentIndex];
-            var lastPointer = lastFingers[nMouse_Pointer_LastIndex];
-
-            float diffX = currentPointer.X - lastPointer.X;
-            float diffY = currentPointer.Y - lastPointer.Y;
-
-            // 应用缩放和敏感度
-            float px = diffX / _settings.ThumbScale;
-            float py = diffY / _settings.ThumbScale;
-
-            // 抖动消除
-            if (Math.Abs(px) <= _settings.JitterOffset)
-                px = 0;
-            if (Math.Abs(py) <= _settings.JitterOffset)
-                py = 0;
-
-            // 应用敏感度
-            double dx = _settings.MouseSensitivity * px;
-            double dy = _settings.MouseSensitivity * py;
-
-            // 精细移动处理
-            if (Math.Abs(dx) > 0.5 && Math.Abs(dx) < 1)
-                dx = dx > 0 ? 1 : -1;
-            if (Math.Abs(dy) > 0.5 && Math.Abs(dy) < 1)
-                dy = dy > 0 ? 1 : -1;
-
-            return ((float)dx, (float)dy);
         }
     }
+    private void AssignPointer()
+    {
+        if (_pointerId.HasValue &&
+            _contacts.TryGetValue(_pointerId.Value, out var existing) &&
+            existing.Active && existing.SeenThisFrame)
+        {
+            _lastPointerPosition = existing.CurrentPoint;
+            return;
+        }
+
+        _pointerId = null;
+
+        var candidates = _contacts.Values
+            .Where(state => state.Active && state.SeenThisFrame)
+            .OrderBy(state => state.FirstSeen)
+            .ThenBy(state => state.ContactId)
+            .ToList();
+
+        if (candidates.Count == 0)
+        {
+            ReleaseButtons();
+            _lastPointerPosition = null;
+            return;
+        }
+
+        if (_lastPointerPosition.HasValue)
+        {
+            var nearest = candidates
+                .OrderBy(state => state.CurrentPoint.DistTo(_lastPointerPosition.Value))
+                .First();
+
+            _pointerId = nearest.ContactId;
+            _lastPointerPosition = nearest.CurrentPoint;
+            Logger.Log($"FingerTracker: Reassigned pointer to contact {nearest.ContactId} (nearest to last position)");
+            return;
+        }
+
+        var chosen = candidates.First();
+        _pointerId = chosen.ContactId;
+        _lastPointerPosition = chosen.CurrentPoint;
+        Logger.Log($"FingerTracker: Assigned pointer to contact {chosen.ContactId}");
+    }
+
+    private void AssignButtons()
+    {
+        var previousLeftId = _leftButtonId;
+        var previousRightId = _rightButtonId;
+        var previousMiddleId = _middleButtonId;
+
+        _leftButtonId = null;
+        _rightButtonId = null;
+        _middleButtonId = null;
+
+        if (!_pointerId.HasValue ||
+            !_contacts.TryGetValue(_pointerId.Value, out var pointerState) ||
+            !pointerState.Active)
+        {
+            return;
+        }
+
+        float bestLeftDx = float.NegativeInfinity;
+        float bestLeftDistance = float.MaxValue;
+        float bestRightDx = float.PositiveInfinity;
+        float bestRightDistance = float.MaxValue;
+        float bestMiddleDistance = float.MaxValue;
+
+        if (previousLeftId.HasValue &&
+            _contacts.TryGetValue(previousLeftId.Value, out var previousLeft) &&
+            previousLeft.Active &&
+            QualifiesAsLeft(previousLeft, pointerState))
+        {
+            var (dx, _, distance) = RelativeToPointer(previousLeft, pointerState);
+            bestLeftDx = dx;
+            bestLeftDistance = distance;
+            _leftButtonId = previousLeft.ContactId;
+        }
+
+        if (previousRightId.HasValue &&
+            _contacts.TryGetValue(previousRightId.Value, out var previousRight) &&
+            previousRight.Active &&
+            QualifiesAsRight(previousRight, pointerState))
+        {
+            var (dx, _, distance) = RelativeToPointer(previousRight, pointerState);
+            bestRightDx = dx;
+            bestRightDistance = distance;
+            _rightButtonId = previousRight.ContactId;
+        }
+
+        if (previousMiddleId.HasValue &&
+            _contacts.TryGetValue(previousMiddleId.Value, out var previousMiddle) &&
+            previousMiddle.Active &&
+            QualifiesAsMiddle(previousMiddle, pointerState))
+        {
+            bestMiddleDistance = RelativeToPointer(previousMiddle, pointerState).distance;
+            _middleButtonId = previousMiddle.ContactId;
+        }
+
+        foreach (var state in _contacts.Values)
+        {
+            if (!state.Active || state.ContactId == pointerState.ContactId)
+            {
+                continue;
+            }
+
+            var (dx, dy, distance) = RelativeToPointer(state, pointerState);
+
+            if (QualifiesAsLeft(state, pointerState) &&
+                (dx > bestLeftDx || (Math.Abs(dx - bestLeftDx) < 0.001f && distance < bestLeftDistance)))
+            {
+                bestLeftDx = dx;
+                bestLeftDistance = distance;
+                _leftButtonId = state.ContactId;
+                continue;
+            }
+
+            if (QualifiesAsRight(state, pointerState) &&
+                (dx < bestRightDx || (Math.Abs(dx - bestRightDx) < 0.001f && distance < bestRightDistance)))
+            {
+                bestRightDx = dx;
+                bestRightDistance = distance;
+                _rightButtonId = state.ContactId;
+                continue;
+            }
+
+            if (QualifiesAsMiddle(state, pointerState) && distance < bestMiddleDistance)
+            {
+                bestMiddleDistance = distance;
+                _middleButtonId = state.ContactId;
+            }
+        }
+
+        if (_leftButtonId.HasValue && _contacts.TryGetValue(_leftButtonId.Value, out var leftState))
+        {
+            var (dx, dy, distance) = RelativeToPointer(leftState, pointerState);
+            Logger.Log($"FingerTracker: Assigned LEFT button to contact {_leftButtonId.Value} (dx:{dx:F1}, dy:{dy:F1}, dist:{distance:F1})");
+        }
+
+        if (_rightButtonId.HasValue && _contacts.TryGetValue(_rightButtonId.Value, out var rightState))
+        {
+            var (dx, dy, distance) = RelativeToPointer(rightState, pointerState);
+            Logger.Log($"FingerTracker: Assigned RIGHT button to contact {_rightButtonId.Value} (dx:{dx:F1}, dy:{dy:F1}, dist:{distance:F1})");
+        }
+
+        if (_middleButtonId.HasValue && _contacts.TryGetValue(_middleButtonId.Value, out var middleState))
+        {
+            var (dx, dy, distance) = RelativeToPointer(middleState, pointerState);
+            Logger.Log($"FingerTracker: Assigned MIDDLE button to contact {_middleButtonId.Value} (dx:{dx:F1}, dy:{dy:F1}, dist:{distance:F1})");
+        }
+    }
+    private bool QualifiesAsLeft(ContactState candidate, ContactState pointer)
+    {
+        var (dx, dy, distance) = RelativeToPointer(candidate, pointer);
+        return dx < 0 &&
+               distance >= _settings.FingerClosedThreshold &&
+               distance <= _settings.FingerMaxDistance &&
+               Math.Abs(dy) <= _settings.FingerMaxDistance;
+    }
+    //7.5*12
+    private bool QualifiesAsMiddle(ContactState candidate, ContactState pointer)
+    {
+        var (dx, dy, distance) = RelativeToPointer(candidate, pointer);
+        return dx < 0 &&
+               distance >= _settings.FingerMinDistance &&
+               distance < _settings.FingerClosedThreshold &&
+               Math.Abs(dy) <= _settings.FingerMaxDistance;
+    }
+
+    private bool QualifiesAsRight(ContactState candidate, ContactState pointer)
+    {
+        var (dx, dy, distance) = RelativeToPointer(candidate, pointer);
+        return dx > 0 &&
+               distance >= _settings.FingerMinDistance &&
+               distance <= _settings.FingerMaxDistance &&
+               Math.Abs(dy) <= _settings.FingerMaxDistance;
+    }
+
+    private (float dx, float dy, float distance) RelativeToPointer(ContactState candidate, ContactState pointer)
+    {
+        float dx = candidate.Current.X - pointer.Current.X;
+        float dy = candidate.Current.Y - pointer.Current.Y;
+        float distance = MathF.Sqrt(dx * dx + dy * dy);
+        return (dx, dy, distance);
+    }
+
+    private Point CalculatePointerDelta()
+    {
+        if (!_pointerId.HasValue ||
+            !_contacts.TryGetValue(_pointerId.Value, out var pointerState) ||
+            !pointerState.HasPrevious)
+        {
+            return Point.Zero;
+        }
+
+        var prev = pointerState.PreviousPoint!.Value;
+        var curr = pointerState.CurrentPoint;
+
+        float diffX = curr.x - prev.x;
+        float diffY = curr.y - prev.y;
+
+        float px = diffX / _settings.ThumbScale;
+        float py = diffY / _settings.ThumbScale;
+
+        if (Math.Abs(px) <= _settings.JitterOffset)
+        {
+            px = 0;
+        }
+        if (Math.Abs(py) <= _settings.JitterOffset)
+        {
+            py = 0;
+        }
+
+        double dx = _settings.MouseSensitivity * px;
+        double dy = _settings.MouseSensitivity * py;
+
+        if (Math.Abs(dx) > 0 && Math.Abs(dx) < 1)
+        {
+            dx = Math.Sign(dx);
+        }
+        if (Math.Abs(dy) > 0 && Math.Abs(dy) < 1)
+        {
+            dy = Math.Sign(dy);
+        }
+
+        _lastPointerPosition = curr;
+        return new Point((float)dx, (float)dy);
+    }
+
+    private bool AreAllContactsReleased()
+    {
+        return _contacts.Values.All(state => !state.Active);
+    }
+
+    private void CleanupInactiveContacts()
+    {
+        var now = DateTime.Now;
+        var staleIds = _contacts
+            .Where(kvp => !kvp.Value.Active && (now - kvp.Value.LastSeen).TotalMilliseconds > 250)
+            .Select(kvp => kvp.Key)
+            .ToList();
+
+        foreach (var id in staleIds)
+        {
+            _contacts.Remove(id);
+            Logger.Log($"FingerTracker: Released contact {id}");
+        }
+
+        if (_pointerId.HasValue && (!_contacts.TryGetValue(_pointerId.Value, out var pointer) || !pointer.Active))
+        {
+            _pointerId = null;
+        }
+        if (_leftButtonId.HasValue && (!_contacts.TryGetValue(_leftButtonId.Value, out var left) || !left.Active))
+        {
+            _leftButtonId = null;
+        }
+        if (_rightButtonId.HasValue && (!_contacts.TryGetValue(_rightButtonId.Value, out var right) || !right.Active))
+        {
+            _rightButtonId = null;
+        }
+        if (_middleButtonId.HasValue && (!_contacts.TryGetValue(_middleButtonId.Value, out var middle) || !middle.Active))
+        {
+            _middleButtonId = null;
+        }
+    }
+
+    private void ReleaseButtons()
+    {
+        _leftButtonId = null;
+        _rightButtonId = null;
+        _middleButtonId = null;
+    }
 }
+
+
+

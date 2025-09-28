@@ -52,7 +52,7 @@ public sealed partial class MouseLikeSettings : Page
         // 更新显示文本
         SensitivityValueText.Text = engine.Settings.MouseSensitivity.ToString("F1");
         ThumbScaleValueText.Text = engine.Settings.ThumbScale.ToString("F1");
-        JitterThresholdValueText.Text = engine.Settings.JitterOffset.ToString("F0");
+        JitterThresholdValueText.Text = engine.Settings.JitterOffset.ToString("F1");
 
         Logger.Log($"MouseLike settings loaded - Enabled: {engine.IsEnabled}");
     }
@@ -142,7 +142,7 @@ public sealed partial class MouseLikeSettings : Page
         if (JitterThresholdValueText == null) return;
 
         float jitterOffset = (float)e.NewValue;
-        JitterThresholdValueText.Text = jitterOffset.ToString("F0");
+        JitterThresholdValueText.Text = jitterOffset.ToString("F1");
 
         var engine = GetMouseLikeEngine();
         if (engine?.Settings != null)

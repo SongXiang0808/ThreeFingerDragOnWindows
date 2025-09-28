@@ -75,7 +75,7 @@
                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         <Slider x:Name="ThumbScaleSlider"
                                Width="200"
-                               Minimum="0.5"
+                               Minimum="0.1"
                                Maximum="2.0"
                                Value="1.0"
                                StepFrequency="0.1"
@@ -106,15 +106,15 @@
                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         <Slider x:Name="JitterThresholdSlider"
                                Width="200"
-                               Minimum="5"
-                               Maximum="20"
-                               Value="10"
-                               StepFrequency="1"
+                               Minimum="0.1"
+                               Maximum="2"
+                               Value="0.3"
+                               StepFrequency="0.1"
                                ValueChanged="JitterThresholdSlider_ValueChanged"/>
                         <TextBlock Text="高" VerticalAlignment="Center"
                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         <TextBlock x:Name="JitterThresholdValueText"
-                                  Text="10"
+                                  Text="0.3"
                                   MinWidth="30"
                                   VerticalAlignment="Center"
                                   Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
@@ -172,3 +172,5 @@
         </StackPanel>
     </ScrollViewer>
 </Page>
+
+
