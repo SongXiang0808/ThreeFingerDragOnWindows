@@ -35,8 +35,9 @@
         <GenerateTestArtifacts>True</GenerateTestArtifacts>
         <AppxBundle>Always</AppxBundle>
         <HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
-        <AppxPackageSigningEnabled>False</AppxPackageSigningEnabled>
+        <AppxPackageSigningEnabled>True</AppxPackageSigningEnabled>
         <AppxBundlePlatforms>x86|x64</AppxBundlePlatforms>
+        <PackageCertificateThumbprint>3FE02853A65BEB7521ED998332151C4380835EE0</PackageCertificateThumbprint>
     </PropertyGroup>
     <ItemGroup>
         <Compile Remove="settings\obj\**\*.cs" />
