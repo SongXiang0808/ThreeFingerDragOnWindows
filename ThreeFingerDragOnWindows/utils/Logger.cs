@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using Windows.Storage;
 
@@ -19,13 +19,39 @@ public class Logger {
 
     static Logger()
     {
-        // 将日志文件保存在指定的log目录下
-        string logDirectory = @"F:\TouchPadCode\log";
-        Directory.CreateDirectory(logDirectory); // 确保目录存在
+        string logDirectory;
+        try
+        {
+            var localPath = ApplicationData.Current?.LocalFolder?.Path;
+            logDirectory = string.IsNullOrWhiteSpace(localPath)
+                ? Path.Combine(Path.GetTempPath(), "ThreeFingerDragOnWindows", "log")
+                : Path.Combine(localPath, "log");
+        }
+        catch
+        {
+            logDirectory = Path.Combine(Path.GetTempPath(), "ThreeFingerDragOnWindows", "log");
+        }
+
+        try
+        {
+            Directory.CreateDirectory(logDirectory);
+        }
+        catch
+        {
+            logDirectory = Path.Combine(Path.GetTempPath(), "ThreeFingerDragOnWindows", "log");
+            Directory.CreateDirectory(logDirectory);
+        }
+
         _logFilePath = Path.Combine(logDirectory, $"mouselike_debug_{DateTime.Now:yyyyMMdd_HHmmss}.log");
 
-        // 每500毫秒自动刷新日志到文件（更频繁）
-        _flushTimer = new Timer(FlushLogsToFile, null, TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(500));
+        try
+        {
+            _flushTimer = new Timer(FlushLogsToFile, null, TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(500));
+        }
+        catch
+        {
+            _flushTimer = new Timer(_ => { }, null, Timeout.Infinite, Timeout.Infinite);
+        }
 
         Log("Logger initialized with file: " + _logFilePath);
     }
@@ -33,23 +59,25 @@ public class Logger {
     public static void Log(string message){
         Debug.WriteLine(message);
 
+        if(App.SettingsData != null && !App.SettingsData.RecordLogs){
+            return;
+        }
+
         string timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
         string logEntry = $"[{timestamp}] {message}";
 
-        // 始终记录到内存队列（不检查SettingsData，因为初始化时可能为null）
         if(_logMessages.Count >= _maxLogCount){
             _logMessages.TryDequeue(out _);
         }
         _logMessages.Enqueue(logEntry);
-
-        // 如果设置存在且禁用了日志记录，只记录到调试输出和内存，不写入文件
-        if(App.SettingsData != null && !App.SettingsData.RecordLogs){
-            return;
-        }
     }
-
     private static void FlushLogsToFile(object state)
     {
+        if(App.SettingsData != null && !App.SettingsData.RecordLogs){
+            while(_logMessages.TryDequeue(out _)){}
+            return;
+        }
+
         if (_logMessages.IsEmpty) return;
 
         try
@@ -88,3 +116,6 @@ public class Logger {
         FlushLogsToFile(null);
     }
 }
+
+
+

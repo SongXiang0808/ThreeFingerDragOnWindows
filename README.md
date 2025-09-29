@@ -3,6 +3,17 @@
 [![TotalDownloads](https://img.shields.io/github/downloads/clementgre/ThreeFingerDragOnWindows/total)](https://github.com/clementgre/ThreeFingerDragOnWindows/releases/latest)
 [![LatestDownloads](https://img.shields.io/github/downloads/clementgre/ThreeFingerDragOnWindows/latest/total)](https://github.com/clementgre/ThreeFingerDragOnWindows/releases/latest)
 
+## 改版仿鼠标触摸板驱动
+### 触摸板设置
+![alt text](ThreeFingerDragOnWindows\image\touchpad-set.png)
+
+### 安装证书
+![alt text](ThreeFingerDragOnWindows\image\crt-install-1.png)
+![alt text](ThreeFingerDragOnWindows\image\crt-install-2.png)
+![alt text](ThreeFingerDragOnWindows\image\crt-install-3.png)
+
+### 安装程序
+![alt text](ThreeFingerDragOnWindows\image\install.png)
 ## Overview
 
 ThreeFingerDragOnWindows aims to bring the macOS-style three-finger dragging functionality to Windows Precision touchpads.

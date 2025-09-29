@@ -136,7 +136,7 @@ public class SettingsData
 
 
 
-    public bool RecordLogs { get; set; } = true;
+    public bool RecordLogs { get; set; } = false;
 
 
 
@@ -283,6 +283,8 @@ public class SettingsData
 
             }
 
+            data.RecordLogs = false;
+
             data.save();
 
         }
@@ -294,6 +296,8 @@ public class SettingsData
         {
 
             DidVersionChanged = true;
+
+            data.RecordLogs = false;
 
             data.save();
 
@@ -360,4 +364,12 @@ public class SettingsData
     }
 
 }
+
+
+
+
+
+
+
+
 

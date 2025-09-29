@@ -107,3 +107,4 @@ public class GestureSettings
 
     public bool PointerSimulationEnabled { get; set; } = false;
 }
+
