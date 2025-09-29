@@ -217,66 +217,96 @@ public sealed class FingerTracker
         float bestRightDx = float.PositiveInfinity;
         float bestRightDistance = float.MaxValue;
 
-        if (previousLeftId.HasValue &&
-            _contacts.TryGetValue(previousLeftId.Value, out var previousLeft) &&
-            previousLeft.Active &&
-            QualifiesAsLeft(previousLeft, pointerState, relaxed: true))
-        {
-            var (dx, _, distance) = RelativeToPointer(previousLeft, pointerState);
-            bestLeftDx = dx;
-            bestLeftDistance = distance;
-            _leftButtonId = previousLeft.ContactId;
-        }
-
-        if (previousRightId.HasValue &&
-            _contacts.TryGetValue(previousRightId.Value, out var previousRight) &&
-            previousRight.Active &&
-            QualifiesAsRight(previousRight, pointerState, relaxed: true))
-        {
-            var (dx, _, distance) = RelativeToPointer(previousRight, pointerState);
-            bestRightDx = dx;
-            bestRightDistance = distance;
-            _rightButtonId = previousRight.ContactId;
-        }
+        bool leftHeld = TryRestoreHeldButton(previousLeftId, pointerState, isLeft: true, ref bestLeftDx, ref bestLeftDistance);
+        bool rightHeld = TryRestoreHeldButton(previousRightId, pointerState, isLeft: false, ref bestRightDx, ref bestRightDistance);
 
         foreach (var state in _contacts.Values)
         {
-            if (!state.Active || state.ContactId == pointerState.ContactId)
+            if (!state.Active || state.ContactId == pointerState.ContactId || IsLikelyScroll(state, pointerState))
             {
                 continue;
             }
 
             var (dx, dy, distance) = RelativeToPointer(state, pointerState);
 
-            if (QualifiesAsLeft(state, pointerState) &&
+            if (!leftHeld && QualifiesAsLeft(state, pointerState) &&
                 ShouldReplaceLeft(dx, distance, ref bestLeftDx, ref bestLeftDistance))
             {
                 bestLeftDx = dx;
                 bestLeftDistance = distance;
                 _leftButtonId = state.ContactId;
+                leftHeld = true;
                 continue;
             }
 
-            if (QualifiesAsRight(state, pointerState) &&
+            if (!rightHeld && QualifiesAsRight(state, pointerState) &&
                 ShouldReplaceRight(dx, distance, ref bestRightDx, ref bestRightDistance))
             {
                 bestRightDx = dx;
                 bestRightDistance = distance;
                 _rightButtonId = state.ContactId;
+                rightHeld = true;
             }
         }
+    }
 
-        if (_leftButtonId.HasValue && _contacts.TryGetValue(_leftButtonId.Value, out var leftState))
+    private bool TryRestoreHeldButton(int? previousId, ContactState pointerState, bool isLeft, ref float bestDx, ref float bestDistance)
+    {
+        if (!previousId.HasValue)
         {
-            var (dx, dy, distance) = RelativeToPointer(leftState, pointerState);
-            // 左键分配 - 移除频繁日志
+            return false;
         }
 
-        if (_rightButtonId.HasValue && _contacts.TryGetValue(_rightButtonId.Value, out var rightState))
+        if (!_contacts.TryGetValue(previousId.Value, out var state) || !state.Active)
         {
-            var (dx, dy, distance) = RelativeToPointer(rightState, pointerState);
-            // 右键分配 - 移除频繁日志
+            return false;
         }
+
+        if (IsLikelyScroll(state, pointerState) || !IsWithinButtonZone(state, pointerState, isLeft))
+        {
+            return false;
+        }
+
+        var (dx, _, distance) = RelativeToPointer(state, pointerState);
+        bestDx = dx;
+        bestDistance = distance;
+        if (isLeft)
+        {
+            _leftButtonId = state.ContactId;
+        }
+        else
+        {
+            _rightButtonId = state.ContactId;
+        }
+        return true;
+    }
+
+    private bool IsWithinButtonZone(ContactState candidate, ContactState pointer, bool isLeft)
+    {
+        var (dx, dy, distance) = RelativeToPointer(candidate, pointer);
+        float minDistance = Math.Max(_settings.FingerMinDistance * 0.4f, 12f);
+        float verticalTolerance = Math.Max(_settings.FingerVerticalTolerance, 20f) * 1.8f;
+        float maxDistance = _settings.FingerMaxDistance * 2.0f;
+        bool sideOk = isLeft ? dx < -minDistance : dx > minDistance;
+        return sideOk && Math.Abs(dy) <= verticalTolerance && distance <= maxDistance;
+    }
+
+    private bool IsLikelyScroll(ContactState candidate, ContactState pointer)
+    {
+        var (dx, dy, distance) = RelativeToPointer(candidate, pointer);
+        float verticalTolerance = Math.Max(_settings.FingerVerticalTolerance, 20f);
+
+        if (Math.Abs(dy) <= verticalTolerance)
+        {
+            return false;
+        }
+
+        if (distance < _settings.FingerMinDistance * 0.6f)
+        {
+            return false;
+        }
+
+        return Math.Abs(dy) > Math.Abs(dx) * 1.2f;
     }
 
     private static bool ShouldReplaceLeft(float candidateDx, float candidateDistance, ref float currentDx, ref float currentDistance)
