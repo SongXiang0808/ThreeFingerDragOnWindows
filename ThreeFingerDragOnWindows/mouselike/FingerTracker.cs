@@ -59,7 +59,10 @@ public sealed class FingerTracker
     private Point? _lastPointerPosition;
 
     private const float SelectionHysteresis = 10f;
-    private const float RelaxedDistanceFactor = 0.5f;
+    private const float HoldDistanceFactor = 0.15f;
+    private const float HoldDistanceMinimum = 50f;
+    private const float ScrollSeparationFactor = 0.45f;
+    private const float ScrollSeparationMinimum = 28f;
 
     public FingerTracker(GestureSettings settings)
     {
@@ -212,6 +215,10 @@ public sealed class FingerTracker
             return;
         }
 
+        var activeStates = _contacts.Values
+            .Where(state => state.Active && state.SeenThisFrame)
+            .ToList();
+
         float bestLeftDx = float.NegativeInfinity;
         float bestLeftDistance = float.MaxValue;
         float bestRightDx = float.PositiveInfinity;
@@ -220,14 +227,27 @@ public sealed class FingerTracker
         bool leftHeld = TryRestoreHeldButton(previousLeftId, pointerState, isLeft: true, ref bestLeftDx, ref bestLeftDistance);
         bool rightHeld = TryRestoreHeldButton(previousRightId, pointerState, isLeft: false, ref bestRightDx, ref bestRightDistance);
 
-        foreach (var state in _contacts.Values)
+        if (!leftHeld && !rightHeld && activeStates.Count > 0)
         {
-            if (!state.Active || state.ContactId == pointerState.ContactId || IsLikelyScroll(state, pointerState))
+            var now = DateTime.Now;
+            int newNonPointerCount = activeStates.Count(state =>
+                state.ContactId != pointerState.ContactId &&
+                (now - state.FirstSeen).TotalMilliseconds <= 120);
+
+            if (newNonPointerCount >= 2)
+            {
+                return;
+            }
+        }
+
+        foreach (var state in activeStates)
+        {
+            if (state.ContactId == pointerState.ContactId || IsLikelyScroll(state, pointerState))
             {
                 continue;
             }
 
-            var (dx, dy, distance) = RelativeToPointer(state, pointerState);
+            var (dx, _, distance) = RelativeToPointer(state, pointerState);
 
             if (!leftHeld && QualifiesAsLeft(state, pointerState) &&
                 ShouldReplaceLeft(dx, distance, ref bestLeftDx, ref bestLeftDistance))
@@ -284,29 +304,112 @@ public sealed class FingerTracker
     private bool IsWithinButtonZone(ContactState candidate, ContactState pointer, bool isLeft)
     {
         var (dx, dy, distance) = RelativeToPointer(candidate, pointer);
-        float minDistance = Math.Max(_settings.FingerMinDistance * 0.4f, 12f);
-        float verticalTolerance = Math.Max(_settings.FingerVerticalTolerance, 20f) * 1.8f;
-        float maxDistance = _settings.FingerMaxDistance * 2.0f;
-        bool sideOk = isLeft ? dx < -minDistance : dx > minDistance;
-        return sideOk && Math.Abs(dy) <= verticalTolerance && distance <= maxDistance;
+
+        float holdThreshold = Math.Max(_settings.FingerMinDistance * HoldDistanceFactor, HoldDistanceMinimum);
+        float minimalSideOffset = Math.Max(_settings.FingerMinDistance * 0.05f, 2f);
+        float verticalTolerance = Math.Max(_settings.FingerVerticalTolerance, 20f) * 1.3f;
+        float maxDistance = _settings.FingerMaxDistance * 1.4f;
+
+        bool sideOk = isLeft ? dx < -minimalSideOffset : dx > minimalSideOffset;
+        if (!sideOk)
+        {
+            return false;
+        }
+
+        bool withinNarrowCorridor = isLeft ? dx > -holdThreshold : dx < holdThreshold;
+        if (withinNarrowCorridor && candidate.HasPrevious)
+        {
+            var prev = candidate.PreviousPoint!.Value;
+            var curr = candidate.CurrentPoint;
+
+            float movementY = Math.Abs(curr.y - prev.y);
+            float movementX = Math.Abs(curr.x - prev.x);
+            float relaxedMotion = Math.Max(_settings.JitterOffset * 6f, 8f);
+
+            if (movementY > relaxedMotion && movementY > movementX * 1.1f)
+            {
+                return false;
+            }
+        }
+
+        return Math.Abs(dy) <= verticalTolerance && distance <= maxDistance;
     }
 
     private bool IsLikelyScroll(ContactState candidate, ContactState pointer)
     {
         var (dx, dy, distance) = RelativeToPointer(candidate, pointer);
-        float verticalTolerance = Math.Max(_settings.FingerVerticalTolerance, 20f);
 
-        if (Math.Abs(dy) <= verticalTolerance)
+        float horizontalSeparation = Math.Abs(dx);
+        float scrollHorizontalLimit = Math.Max(_settings.FingerMinDistance * ScrollSeparationFactor, ScrollSeparationMinimum);
+        if (horizontalSeparation > scrollHorizontalLimit)
         {
             return false;
         }
 
-        if (distance < _settings.FingerMinDistance * 0.6f)
+        float pairDistanceLimit = Math.Max(_settings.FingerMaxDistance * 0.6f, scrollHorizontalLimit * 2f);
+        if (distance > pairDistanceLimit)
         {
             return false;
         }
 
-        return Math.Abs(dy) > Math.Abs(dx) * 1.2f;
+        if (!candidate.HasPrevious || !pointer.HasPrevious)
+        {
+            return false;
+        }
+
+        var prevCandidate = candidate.PreviousPoint!.Value;
+        var prevPointer = pointer.PreviousPoint!.Value;
+
+        float candidateMoveX = candidate.CurrentPoint.x - prevCandidate.x;
+        float candidateMoveY = candidate.CurrentPoint.y - prevCandidate.y;
+        float pointerMoveX = pointer.CurrentPoint.x - prevPointer.x;
+        float pointerMoveY = pointer.CurrentPoint.y - prevPointer.y;
+
+        float minCandidateVertical = Math.Max(6f, _settings.JitterOffset * 5f);
+        if (Math.Abs(candidateMoveY) < minCandidateVertical)
+        {
+            return false;
+        }
+
+        if (Math.Abs(candidateMoveY) < Math.Abs(candidateMoveX) * 1.2f)
+        {
+            return false;
+        }
+
+        float minPointerVertical = Math.Max(4f, _settings.JitterOffset * 3f);
+        bool pointerMovingVertically = Math.Abs(pointerMoveY) > minPointerVertical &&
+                                       Math.Abs(pointerMoveY) >= Math.Abs(pointerMoveX) * 0.8f;
+
+        if (pointerMovingVertically)
+        {
+            if (Math.Sign(candidateMoveY) != Math.Sign(pointerMoveY))
+            {
+                return false;
+            }
+
+            float diff = Math.Abs(candidateMoveY - pointerMoveY);
+            float allowedDiff = Math.Max(20f, Math.Abs(candidateMoveY) * 0.6f);
+            if (diff > allowedDiff)
+            {
+                return false;
+            }
+        }
+        else
+        {
+            float pointerDriftTolerance = Math.Max(2f, _settings.JitterOffset * 2f);
+            if (Math.Abs(pointerMoveY) > pointerDriftTolerance)
+            {
+                return false;
+            }
+
+            float pointerHorizontalLimit = Math.Max(10f, horizontalSeparation);
+            if (Math.Abs(pointerMoveX) > pointerHorizontalLimit)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool ShouldReplaceLeft(float candidateDx, float candidateDistance, ref float currentDx, ref float currentDistance)
@@ -371,8 +474,8 @@ public sealed class FingerTracker
 
     private float GetMinimumHorizontalThreshold(bool relaxed)
     {
-        var baseValue = Math.Max(_settings.FingerMinDistance, 20f);
-        return relaxed ? Math.Max(baseValue * RelaxedDistanceFactor, 15f) : baseValue;
+        var baseValue = Math.Max(_settings.FingerMinDistance * (relaxed ? 0.35f : 0.5f), 10f);
+        return baseValue;
     }
 
     private (float dx, float dy, float distance) RelativeToPointer(ContactState candidate, ContactState pointer)
