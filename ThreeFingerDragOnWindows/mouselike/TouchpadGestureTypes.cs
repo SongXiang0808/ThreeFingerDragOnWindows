@@ -1,6 +1,7 @@
 using System;
 using ThreeFingerDragEngine.utils;
 using ThreeFingerDragOnWindows.utils;
+using ThreeFingerDragOnWindows.touchpad;
 
 namespace ThreeFingerDragOnWindows.mouselike;
 
@@ -77,13 +78,12 @@ public struct MouseButtonState
 }
 
 /// <summary>
-/// 手势设置参数，完全基于C++驱动中的配置
+/// 手势设置参数，完全基于C++驱动中的配置，现已支持触摸板尺寸自适应
 /// </summary>
 public class GestureSettings
 {
-    /// <summary>手指间最小有效距离 (对应C++的FingerMinDistance)</summary>
-    public float FingerMinDistance { get; set; } = 80f; // 对应驱动中的默认值
-
+    /// <summary>手指间最小有效距离 (基于1600x1200坐标系统优化)</summary>
+    public float FingerMinDistance { get; set; } = 50f; // 约占宽度的3%，适合1600坐标范围
 
     /// <summary>鼠标移动敏感度 (对应C++的MouseSensitivity_Value)</summary>
     public float MouseSensitivity { get; set; } = 1.0f; // 对应驱动中的默认值
@@ -91,20 +91,79 @@ public class GestureSettings
     /// <summary>手指尺寸缩放比例 (对应C++的thumb_Scale)</summary>
     public float ThumbScale { get; set; } = 1.0f; // 对应驱动中的默认值
 
-    /// <summary>抖动消除偏移量 (对应C++的Jitter_Offset)</summary>
-    public float JitterOffset { get; set; } = 0.4f; // 对应驱动中的默认值
+    /// <summary>抖动消除偏移量 (基于1600x1200坐标系统优化)</summary>
+    public float JitterOffset { get; set; } = 3f; // 增加到适合1600坐标范围的值
 
-    /// <summary>手指最大有效水平距离</summary>
-    public float FingerMaxDistance { get; set; } = 520f;
+    /// <summary>手指最大有效水平距离 (基于1600x1200坐标系统优化)</summary>
+    public float FingerMaxDistance { get; set; } = 250f; // 约占宽度的15%，适合1600坐标范围
 
-    /// <summary>允许的垂直偏移量</summary>
-    public float FingerVerticalTolerance { get; set; } = 200f;
+    /// <summary>允许的垂直偏移量 (基于1600x1200坐标系统优化)</summary>
+    public float FingerVerticalTolerance { get; set; } = 150f; // 约占高度的12%，适合1200坐标范围
 
     /// <summary>是否启用中键模拟</summary>
     public bool MiddleButtonEnabled { get; set; } = false;
 
-
-
+    /// <summary>是否启用指针模拟</summary>
     public bool PointerSimulationEnabled { get; set; } = false;
+
+    /// <summary>触摸板信息（用于自适应参数）</summary>
+    public TouchpadInfo? TouchpadInfo { get; set; }
+
+    /// <summary>左右手指位置差异补偿因子</summary>
+    public float FingerPositionCompensation { get; set; } = 0.8f;
+
+    /// <summary>拖拽时的最小手指距离降低比例</summary>
+    public float DragMinDistanceReduction { get; set; } = 0.6f;
+
+    /// <summary>双指滑动检测的严格度</summary>
+    public float ScrollStrictness { get; set; } = 1.2f;
+
+    /// <summary>
+    /// 根据触摸板信息更新所有相关参数
+    /// </summary>
+    public void UpdateFromTouchpadInfo(TouchpadInfo touchpadInfo)
+    {
+        TouchpadInfo = touchpadInfo;
+
+        if (touchpadInfo.IsValid)
+        {
+            // 基于真实触摸板尺寸计算参数
+            touchpadInfo.CalculateFingerDistanceParameters(ThumbScale, out var minDist, out var maxDist);
+            FingerMinDistance = minDist;
+            FingerMaxDistance = maxDist;
+
+            // 更新抖动偏移量
+            JitterOffset = touchpadInfo.GetJitterOffset(0.4f);
+
+            // 更新垂直容差
+            FingerVerticalTolerance = touchpadInfo.GetVerticalTolerance();
+
+            Logger.Log($"GestureSettings: Updated from touchpad info - MinDist: {FingerMinDistance:F1}, " +
+                      $"MaxDist: {FingerMaxDistance:F1}, JitterOffset: {JitterOffset:F2}, " +
+                      $"VerticalTolerance: {FingerVerticalTolerance:F1}");
+        }
+    }
+
+    /// <summary>
+    /// 获取适应性的手指最小距离（考虑手指位置差异）
+    /// </summary>
+    public float GetAdaptiveMinDistance(bool isLeftButton = false, bool isDragging = false)
+    {
+        float baseDistance = FingerMinDistance;
+
+        // 左键时考虑手指位置差异（食指比中指短）
+        if (isLeftButton)
+        {
+            baseDistance *= FingerPositionCompensation;
+        }
+
+        // 拖拽时降低最小距离要求
+        if (isDragging)
+        {
+            baseDistance *= DragMinDistanceReduction;
+        }
+
+        return baseDistance;
+    }
 }
 

@@ -324,6 +324,8 @@ public class ContactsManager{
                 _mouseLikeGestureEngine.Settings.FingerVerticalTolerance = clampedVertical;
                 _mouseLikeGestureEngine.Settings.MiddleButtonEnabled = settingsData.MouseLikeMiddleButtonEnabled;
 
+                Logger.Log($"ContactsManager: Middle button enabled: {_mouseLikeGestureEngine.Settings.MiddleButtonEnabled}");
+
                 if (normalizationNeeded)
                 {
                     try

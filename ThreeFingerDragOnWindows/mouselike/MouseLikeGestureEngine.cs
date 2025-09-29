@@ -1,6 +1,7 @@
 using System;
 using ThreeFingerDragEngine.utils;
 using ThreeFingerDragOnWindows.utils;
+using ThreeFingerDragOnWindows.touchpad;
 
 namespace ThreeFingerDragOnWindows.mouselike;
 
@@ -22,11 +23,16 @@ public class MouseLikeGestureEngine
     public MouseLikeGestureEngine()
     {
         _settings = new GestureSettings();
+
+        // 检测触摸板信息并更新设置
+        var touchpadInfo = TouchpadInfoDetector.DetectTouchpadInfo();
+        _settings.UpdateFromTouchpadInfo(touchpadInfo);
+
         _fingerTracker = new FingerTracker(_settings);
         _scrollProcessor = new ScrollProcessor(_settings);
         _isEnabled = false;
 
-        Logger.Log("MouseLikeGestureEngine: Initialized");
+        Logger.Log("MouseLikeGestureEngine: Initialized with touchpad-aware settings");
     }
 
     /// <summary>

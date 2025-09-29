@@ -56,13 +56,15 @@ public sealed class FingerTracker
     private int? _pointerId;
     private int? _leftButtonId;
     private int? _rightButtonId;
+    private int? _middleButtonId;
     private Point? _lastPointerPosition;
+    private DateTime _lastFingerCountChangeTime;
 
-    private const float SelectionHysteresis = 10f;
+    private const float SelectionHysteresis = 8f;    // 适合1600坐标系统
     private const float HoldDistanceFactor = 0.15f;
-    private const float HoldDistanceMinimum = 50f;
+    private const float HoldDistanceMinimum = 30f;   // 降低到适合1600坐标系统
     private const float ScrollSeparationFactor = 0.45f;
-    private const float ScrollSeparationMinimum = 28f;
+    private const float ScrollSeparationMinimum = 20f; // 降低到适合1600坐标系统
 
     public FingerTracker(GestureSettings settings)
     {
@@ -76,7 +78,9 @@ public sealed class FingerTracker
         _pointerId = null;
         _leftButtonId = null;
         _rightButtonId = null;
+        _middleButtonId = null;
         _lastPointerPosition = null;
+        _lastFingerCountChangeTime = DateTime.Now;
         Logger.Log("FingerTracker: Reset completed");
     }
 
@@ -94,7 +98,7 @@ public sealed class FingerTracker
         {
             LeftButton = _leftButtonId.HasValue,
             RightButton = _rightButtonId.HasValue,
-            MiddleButton = false
+            MiddleButton = _middleButtonId.HasValue && _settings.MiddleButtonEnabled
         };
 
         var result = new GestureResult
@@ -204,9 +208,11 @@ public sealed class FingerTracker
     {
         var previousLeftId = _leftButtonId;
         var previousRightId = _rightButtonId;
+        var previousMiddleId = _middleButtonId;
 
         _leftButtonId = null;
         _rightButtonId = null;
+        _middleButtonId = null;
 
         if (!_pointerId.HasValue ||
             !_contacts.TryGetValue(_pointerId.Value, out var pointerState) ||
@@ -219,6 +225,53 @@ public sealed class FingerTracker
             .Where(state => state.Active && state.SeenThisFrame)
             .ToList();
 
+        var activeContactCount = activeStates.Count;
+
+        // 检测三指点击中键（防止与右键冲突）
+        if (_settings.MiddleButtonEnabled && activeContactCount == 3)
+        {
+            var now = DateTime.Now;
+
+            // 检查是否是新的三指触控（稳定时间检查）
+            bool isStableThreeFingerTouch = activeStates.All(state =>
+                (now - state.FirstSeen).TotalMilliseconds > 50 &&
+                (now - state.FirstSeen).TotalMilliseconds < 300);
+
+            if (isStableThreeFingerTouch)
+            {
+                // 检查三个手指是否相对静止（非滑动手势）
+                bool fingersRelativelyStatic = activeStates.All(state =>
+                {
+                    if (!state.HasPrevious) return true;
+
+                    var movement = state.CurrentPoint.DistTo(state.PreviousPoint.Value);
+                    return movement < _settings.JitterOffset * 3f;
+                });
+
+                if (fingersRelativelyStatic)
+                {
+                    // 选择最靠近指针的手指作为中键代表
+                    var closestToPointer = activeStates
+                        .Where(s => s.ContactId != pointerState.ContactId)
+                        .OrderBy(s => s.CurrentPoint.DistTo(pointerState.CurrentPoint))
+                        .FirstOrDefault();
+
+                    if (closestToPointer != null)
+                    {
+                        _middleButtonId = closestToPointer.ContactId;
+                        Logger.Log($"FingerTracker: Three-finger middle button detected");
+                        return; // 三指中键时不分配左右键
+                    }
+                }
+            }
+        }
+
+        // 记录手指数量变化时间，用于防止快速切换时的误触
+        if (activeContactCount != _contacts.Values.Count(s => s.Active))
+        {
+            _lastFingerCountChangeTime = DateTime.Now;
+        }
+
         float bestLeftDx = float.NegativeInfinity;
         float bestLeftDistance = float.MaxValue;
         float bestRightDx = float.PositiveInfinity;
@@ -227,9 +280,17 @@ public sealed class FingerTracker
         bool leftHeld = TryRestoreHeldButton(previousLeftId, pointerState, isLeft: true, ref bestLeftDx, ref bestLeftDistance);
         bool rightHeld = TryRestoreHeldButton(previousRightId, pointerState, isLeft: false, ref bestRightDx, ref bestRightDistance);
 
+        // 防止在三指状态下意外触发左右键
         if (!leftHeld && !rightHeld && activeStates.Count > 0)
         {
             var now = DateTime.Now;
+
+            // 如果是三指或更多，而且手指数量刚变化，暂时不分配左右键
+            if (activeContactCount >= 3 && (now - _lastFingerCountChangeTime).TotalMilliseconds < 150)
+            {
+                return;
+            }
+
             int newNonPointerCount = activeStates.Count(state =>
                 state.ContactId != pointerState.ContactId &&
                 (now - state.FirstSeen).TotalMilliseconds <= 120);
@@ -306,8 +367,8 @@ public sealed class FingerTracker
         var (dx, dy, distance) = RelativeToPointer(candidate, pointer);
 
         float holdThreshold = Math.Max(_settings.FingerMinDistance * HoldDistanceFactor, HoldDistanceMinimum);
-        float minimalSideOffset = Math.Max(_settings.FingerMinDistance * 0.05f, 2f);
-        float verticalTolerance = Math.Max(_settings.FingerVerticalTolerance, 20f) * 1.3f;
+        float minimalSideOffset = Math.Max(_settings.FingerMinDistance * 0.05f, 1f);
+        float verticalTolerance = Math.Max(_settings.FingerVerticalTolerance, 15f) * 1.3f;
         float maxDistance = _settings.FingerMaxDistance * 1.4f;
 
         bool sideOk = isLeft ? dx < -minimalSideOffset : dx > minimalSideOffset;
@@ -324,7 +385,7 @@ public sealed class FingerTracker
 
             float movementY = Math.Abs(curr.y - prev.y);
             float movementX = Math.Abs(curr.x - prev.x);
-            float relaxedMotion = Math.Max(_settings.JitterOffset * 6f, 8f);
+            float relaxedMotion = Math.Max(_settings.JitterOffset * 6f, 5f);
 
             if (movementY > relaxedMotion && movementY > movementX * 1.1f)
             {
@@ -339,14 +400,15 @@ public sealed class FingerTracker
     {
         var (dx, dy, distance) = RelativeToPointer(candidate, pointer);
 
+        // 更严格的水平分离限制，防止与右键冲突
         float horizontalSeparation = Math.Abs(dx);
-        float scrollHorizontalLimit = Math.Max(_settings.FingerMinDistance * ScrollSeparationFactor, ScrollSeparationMinimum);
+        float scrollHorizontalLimit = Math.Max(_settings.FingerMinDistance * ScrollSeparationFactor * _settings.ScrollStrictness, ScrollSeparationMinimum);
         if (horizontalSeparation > scrollHorizontalLimit)
         {
             return false;
         }
 
-        float pairDistanceLimit = Math.Max(_settings.FingerMaxDistance * 0.6f, scrollHorizontalLimit * 2f);
+        float pairDistanceLimit = Math.Max(_settings.FingerMaxDistance * 0.4f, scrollHorizontalLimit * 1.5f); // 降低距离限制
         if (distance > pairDistanceLimit)
         {
             return false;
@@ -365,30 +427,34 @@ public sealed class FingerTracker
         float pointerMoveX = pointer.CurrentPoint.x - prevPointer.x;
         float pointerMoveY = pointer.CurrentPoint.y - prevPointer.y;
 
-        float minCandidateVertical = Math.Max(6f, _settings.JitterOffset * 5f);
+        // 提高垂直移动的最小要求
+        float minCandidateVertical = Math.Max(5f, _settings.JitterOffset * 6f);
         if (Math.Abs(candidateMoveY) < minCandidateVertical)
         {
             return false;
         }
 
-        if (Math.Abs(candidateMoveY) < Math.Abs(candidateMoveX) * 1.2f)
+        // 更严格要求垂直移动比水平移动大
+        if (Math.Abs(candidateMoveY) < Math.Abs(candidateMoveX) * _settings.ScrollStrictness * 1.5f)
         {
             return false;
         }
 
-        float minPointerVertical = Math.Max(4f, _settings.JitterOffset * 3f);
+        float minPointerVertical = Math.Max(3f, _settings.JitterOffset * 4f);
         bool pointerMovingVertically = Math.Abs(pointerMoveY) > minPointerVertical &&
-                                       Math.Abs(pointerMoveY) >= Math.Abs(pointerMoveX) * 0.8f;
+                                       Math.Abs(pointerMoveY) >= Math.Abs(pointerMoveX) * 0.9f;
 
         if (pointerMovingVertically)
         {
+            // 检查移动方向是否一致
             if (Math.Sign(candidateMoveY) != Math.Sign(pointerMoveY))
             {
                 return false;
             }
 
+            // 更严格的同步性检查
             float diff = Math.Abs(candidateMoveY - pointerMoveY);
-            float allowedDiff = Math.Max(20f, Math.Abs(candidateMoveY) * 0.6f);
+            float allowedDiff = Math.Max(10f, Math.Abs(candidateMoveY) * 0.4f);
             if (diff > allowedDiff)
             {
                 return false;
@@ -396,18 +462,29 @@ public sealed class FingerTracker
         }
         else
         {
-            float pointerDriftTolerance = Math.Max(2f, _settings.JitterOffset * 2f);
+            // 指针没有垂直移动时，更严格的水平限制
+            float pointerDriftTolerance = Math.Max(1f, _settings.JitterOffset * 1.5f);
             if (Math.Abs(pointerMoveY) > pointerDriftTolerance)
             {
                 return false;
             }
 
-            float pointerHorizontalLimit = Math.Max(10f, horizontalSeparation);
+            float pointerHorizontalLimit = Math.Max(3f, horizontalSeparation * 0.5f);
             if (Math.Abs(pointerMoveX) > pointerHorizontalLimit)
             {
                 return false;
             }
         }
+
+        // 额外检查：如果水平分离过大，不认为是滚动
+        if (horizontalSeparation > _settings.FingerMinDistance * 0.7f)
+        {
+            return false;
+        }
+
+        Logger.Log($"FingerTracker: Identified scroll gesture - HorizontalSep: {horizontalSeparation:F1}, " +
+                  $"CandidateMove: ({candidateMoveX:F1}, {candidateMoveY:F1}), " +
+                  $"PointerMove: ({pointerMoveX:F1}, {pointerMoveY:F1})");
 
         return true;
     }
@@ -445,9 +522,10 @@ public sealed class FingerTracker
         }
 
         float horizontalDistance = Math.Abs(dx);
-        float minHorizontal = GetMinimumHorizontalThreshold(relaxed);
+        bool isDragging = _leftButtonId.HasValue; // 检测是否正在拖拽
+        float minHorizontal = GetMinimumHorizontalThreshold(relaxed, isLeftButton: true, isDragging: isDragging);
         float maxHorizontal = Math.Max(_settings.FingerMaxDistance, minHorizontal + 10f);
-        float verticalTolerance = Math.Max(_settings.FingerVerticalTolerance, 20f);
+        float verticalTolerance = Math.Max(_settings.FingerVerticalTolerance, 15f);
 
         return horizontalDistance >= minHorizontal &&
                horizontalDistance <= maxHorizontal &&
@@ -463,18 +541,21 @@ public sealed class FingerTracker
         }
 
         float horizontalDistance = Math.Abs(dx);
-        float minHorizontal = GetMinimumHorizontalThreshold(relaxed);
+        bool isDragging = _rightButtonId.HasValue; // 检测是否正在拖拽
+        float minHorizontal = GetMinimumHorizontalThreshold(relaxed, isLeftButton: false, isDragging: isDragging);
         float maxHorizontal = Math.Max(_settings.FingerMaxDistance, minHorizontal + 10f);
-        float verticalTolerance = Math.Max(_settings.FingerVerticalTolerance, 20f);
+        float verticalTolerance = Math.Max(_settings.FingerVerticalTolerance, 15f);
 
         return horizontalDistance >= minHorizontal &&
                horizontalDistance <= maxHorizontal &&
                Math.Abs(dy) <= verticalTolerance;
     }
 
-    private float GetMinimumHorizontalThreshold(bool relaxed)
+    private float GetMinimumHorizontalThreshold(bool relaxed, bool isLeftButton = false, bool isDragging = false)
     {
-        var baseValue = Math.Max(_settings.FingerMinDistance * (relaxed ? 0.35f : 0.5f), 10f);
+        // 使用新的自适应距离计算方法
+        var adaptiveDistance = _settings.GetAdaptiveMinDistance(isLeftButton, isDragging);
+        var baseValue = Math.Max(adaptiveDistance * (relaxed ? 0.35f : 0.5f), 5f);
         return baseValue;
     }
 
@@ -560,11 +641,16 @@ public sealed class FingerTracker
         {
             _rightButtonId = null;
         }
+        if (_middleButtonId.HasValue && (!_contacts.TryGetValue(_middleButtonId.Value, out var middle) || !middle.Active))
+        {
+            _middleButtonId = null;
+        }
     }
 
     private void ReleaseButtons()
     {
         _leftButtonId = null;
         _rightButtonId = null;
+        _middleButtonId = null;
     }
 }
